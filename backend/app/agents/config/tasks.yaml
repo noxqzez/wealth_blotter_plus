@@ -1,0 +1,28 @@
+# Generic tasks — expected outputs must bind to Pydantic schemas in agent_outputs.py
+
+quant_analysis:
+  description: >
+    Analyze the anonymized portfolio context and return QuantAnalysisOutput JSON
+    including confidence_score and proposed_orders.
+  agent: quant_analyst
+  expected_output: QuantAnalysisOutput
+  async_execution: true
+
+compliance_review:
+  description: >
+    Review proposed orders. Prefer deterministic compliance_tool results;
+    return ComplianceCheckOutput JSON with confidence_score.
+  agent: compliance_officer
+  expected_output: ComplianceCheckOutput
+  async_execution: true
+
+stage_or_hitl:
+  description: >
+    Given quant + compliance outputs, produce AdvisoryCrewOutput and indicate
+    blotter vs HITL using confidence_threshold (default 0.85).
+  agent: trade_staging_agent
+  expected_output: AdvisoryCrewOutput
+  async_execution: false
+  context:
+    - quant_analysis
+    - compliance_review

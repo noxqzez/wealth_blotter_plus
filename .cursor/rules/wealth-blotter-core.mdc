@@ -1,0 +1,44 @@
+---
+description: Core stack, architecture, and project layout for Wealth Blotter Plus
+alwaysApply: true
+---
+
+# Wealth Blotter Plus — Core
+
+## Stack
+
+- Python 3.10+, FastAPI, Pydantic v2, CrewAI (local Ollama by default; cloud LLMs via env flags)
+- Supabase (PostgreSQL + RLS) for persistence and audit logging
+- Frontends: `frontend_excel/` (Office.js + Vite) and `frontend_streamlit/`
+
+## Layout (domain isolation)
+
+```
+/backend
+  /app/api          HTTP routers
+  /app/core         JWT, Supabase clients, rules cache
+  /app/schemas      Immutable Pydantic contracts
+  /app/agents       CrewAI, tools, YAML, self-healing
+  /app/db           SQL DDL, RLS, seeds, seed_configs
+/frontend_excel     Vite + Office.js task pane
+/frontend_streamlit Ops & agent debug dashboard
+```
+
+Keep parallel agents inside one tree at a time.
+
+## Architecture
+
+- **Self-healing:** On Pydantic/JSON errors from CrewAI, feed the trace back into agent context and retry up to 3 times
+- **Confidence routing:** Parse `confidence_score` (0.0–1.0); `≥ 0.85` → blotter staging; `< 0.85` → HITL review
+- **Accuracy audit:** Persist agent output vs advisor-saved output in `agent_output_reviews`
+- **Config split:** `technical_limits` vs `business_guardrails` in Supabase `configs` (jsonb) — never mix; seed from `backend/app/db/seed_configs/`
+- **LLM defaults:** Global temperature `0.2` in `config.py`; per-agent overrides in `agents.yaml`
+
+## Contracts & parallel work
+
+- Treat Pydantic models, FastAPI OpenAPI schemas, and SQL DDL as immutable contracts
+- One agent owns a file tree at a time; changes must be self-contained, typed, and testable before integration
+
+## Audit
+
+- Route execution events, API requests, confidence metrics, and validation errors to Supabase `audit_logs` (immutable)

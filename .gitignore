@@ -1,0 +1,50 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.uv/
+uv.lock
+
+# Node / frontend_excel
+node_modules/
+frontend_excel/dist/
+frontend_excel/.vite/
+*.local
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Certificates (mkcert / local HTTPS)
+*.crt
+!frontend_excel/**/*.example.*
+
+# Logs & temp
+*.log
+tmp/
+temp/
+.cache/

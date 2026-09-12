@@ -1,0 +1,7 @@
+# Python Standards
+
+- Comprehensive type hints on all functions
+- Pydantic models: `PascalCase`
+- Variables, functions, modules: `snake_case`
+- Prefer Pydantic v2 models as API and agent I/O contracts
+- Self-heal CrewAI JSON/validation failures with up to 3 retries before failing hard

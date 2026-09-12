@@ -1,0 +1,52 @@
+# .cursorrules - Institutional Agent Development Standards
+
+project:
+  type: "Python / FastAPI / CrewAI Monorepo"
+  domain: "Institutional Wealth & Risk Management"
+
+code_style:
+  python:
+    type_checking: "strict"
+    schema_validation: "Pydantic v2"
+    async_first: true
+    logging: "structlog / JSON format"
+
+python_design_principles:
+  1_solid_principles:
+    rule: "Adhere to SOLID principles. Decouple agent definitions, tools, and execution logic using clear interfaces and dependency injection."
+  2_type_safety:
+    rule: "Enforce strict type annotations across all function signatures and data models using Pydantic v2 and typing protocols."
+  3_dry_and_modular:
+    rule: "Avoid monolithic functions. Isolate ETL logic, tool declarations, and orchestration flows into modular, testable components."
+  4_defensive_programming:
+    rule: "Use explicit exception handling, custom domain error classes, and structured logging instead of generic try/except blocks."
+
+parallel_execution_rules:
+  1_async_concurrency:
+    rule: "Execute independent agent operations concurrently using asyncio (e.g., `asyncio.gather`) or CrewAI's parallel task execution features (`async_execution=True`)."
+  2_state_immutability:
+    rule: "Parallel tasks must operate on immutable state or isolated copies to prevent shared memory race conditions."
+  3_non_blocking_io:
+    rule: "All network and disk I/O inside agent tools must use asynchronous drivers or run in thread pools to avoid blocking the event loop."
+
+agent_architecture_principles:
+  1_determinism_over_llm:
+    rule: "Never use an LLM for operations that can be computed deterministically in code (e.g., percentage caps, ticker string truncation, regex filtering, hard threshold validation)."
+  2_data_privacy:
+    rule: "Never pass client PII, internal strategy documents, or full portfolio weight vectors to external API LLMs (e.g., OpenAI). Anonymize all payloads."
+  3_structured_outputs:
+    rule: "All agent outputs must strictly bind to Pydantic models. Unstructured natural language outputs from agents are prohibited in production flows."
+  4_error_handling:
+    rule: "Every agent task must include explicit fallback paths, timeout limits, and structured error logging."
+
+directory_structure:
+  backend/app: "FastAPI application (api, core, schemas, agents, db)"
+  backend/app/agents:
+    config: "YAML configurations for CrewAI roles, goals, and tasks"
+    tools: "Deterministic Python tools (ETL, hard-rule validators)"
+    crew.py: "CrewAI orchestrator and execution flow"
+    self_healing.py: "Pydantic validation retry wrapper (max 3)"
+  backend/app/schemas: "Pydantic contracts for API and agent I/O"
+  backend/app/db: "SQL DDL, RLS, seed.sql, seed_configs/*.json"
+  frontend_excel: "Vite + Office.js task pane (HTTPS via mkcert)"
+  frontend_streamlit: "Ops and agent debug dashboard"

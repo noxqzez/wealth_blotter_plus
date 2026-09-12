@@ -1,0 +1,7 @@
+{
+  "max_tickers_per_request": 50,
+  "api_rate_limit_rpm": 120,
+  "execution_timeout_seconds": 120,
+  "max_batch_ingest_rows": 500,
+  "max_self_heal_retries": 3
+}

@@ -37,6 +37,13 @@ class Settings(BaseSettings):
 
     confidence_threshold: float = Field(default=0.85, alias="CONFIDENCE_THRESHOLD")
 
+    # MVP local demo: skip JWT and use a fixed advisor id
+    dev_auth_bypass: bool = Field(default=False, alias="DEV_AUTH_BYPASS")
+    dev_advisor_id: str = Field(
+        default="00000000-0000-4000-8000-000000000001",
+        alias="DEV_ADVISOR_ID",
+    )
+
     cors_origins: str = Field(
         default="https://localhost:3000,http://localhost:8501",
         alias="CORS_ORIGINS",
@@ -46,6 +53,31 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, alias="API_PORT")
 
     rules_cache_ttl_seconds: int = Field(default=60, alias="RULES_CACHE_TTL_SECONDS")
+
+    # RAG POC — Hugging Face sentence-transformers (local). Dim must match pgvector.
+    rag_storage_bucket: str = Field(
+        default="research-documents",
+        alias="RAG_STORAGE_BUCKET",
+    )
+    rag_embedding_model: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        alias="RAG_EMBEDDING_MODEL",
+    )
+    rag_embedding_dims: int = Field(default=384, alias="RAG_EMBEDDING_DIMS")
+    rag_max_upload_bytes: int = Field(
+        default=20 * 1024 * 1024,
+        alias="RAG_MAX_UPLOAD_BYTES",
+    )
+    rag_chunk_size: int = Field(default=800, alias="RAG_CHUNK_SIZE")
+    rag_chunk_overlap: int = Field(default=120, alias="RAG_CHUNK_OVERLAP")
+    rag_classify_excerpt_chars: int = Field(
+        default=2000,
+        alias="RAG_CLASSIFY_EXCERPT_CHARS",
+    )
+    rag_auto_process_upload: bool = Field(
+        default=True,
+        alias="RAG_AUTO_PROCESS_UPLOAD",
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:

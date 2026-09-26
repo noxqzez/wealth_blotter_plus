@@ -45,10 +45,14 @@ class RulesEngine:
                 self._cache["technical_limits"] = TechnicalLimits.model_validate(
                     rows["technical_limits"]
                 )
+            else:
+                self._cache["technical_limits"] = TechnicalLimits()
             if "business_guardrails" in rows:
                 self._cache["business_guardrails"] = BusinessGuardrails.model_validate(
                     rows["business_guardrails"]
                 )
+            else:
+                self._cache["business_guardrails"] = BusinessGuardrails()
             self._loaded_at = time.monotonic()
             logger.info("rules_refreshed_from_db", keys=list(self._cache.keys()))
         except (SupabaseNotConfiguredError, Exception) as exc:  # noqa: BLE001

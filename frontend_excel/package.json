@@ -6,16 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "certs": "mkdir -p .certs && mkcert -key-file .certs/localhost-key.pem -cert-file .certs/localhost.pem localhost 127.0.0.1 ::1"
   },
   "dependencies": {
     "dompurify": "^3.2.4"
   },
   "devDependencies": {
-    "@types/dompurify": "^3.2.0",
     "@types/office-js": "^1.0.443",
     "typescript": "^5.7.2",
-    "vite": "^6.0.3",
-    "vite-plugin-mkcert": "^1.17.6"
+    "vite": "^6.0.3"
   }
 }

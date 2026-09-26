@@ -57,3 +57,31 @@ class AdvisoryCrewOutput(AgentBaseOutput):
     quant: QuantAnalysisOutput | None = None
     compliance: ComplianceCheckOutput | None = None
     anonymized: bool = True
+
+
+class ResearchAssetClass(str, Enum):
+    """Classification labels for research PDF ingest (RAG POC)."""
+
+    US_STOCK = "US_Stock"
+    HK_STOCK = "HK_Stock"
+    CRYPTO = "Crypto"
+    NEITHER = "Neither"
+
+
+class ResearchSentiment(str, Enum):
+    BULLISH = "Bullish"
+    BEARISH = "Bearish"
+    NEUTRAL = "Neutral"
+
+
+class DocumentClassificationOutput(AgentBaseOutput):
+    """Structured output from the document classification agent."""
+
+    asset_class: ResearchAssetClass
+    ticker: str | None = Field(
+        default=None,
+        max_length=32,
+        description="Ticker e.g. AAPL, 0700.HK, BTC. Null when Neither or unclear.",
+    )
+    source_firm: str | None = Field(default=None, max_length=128)
+    overall_sentiment: ResearchSentiment = ResearchSentiment.NEUTRAL

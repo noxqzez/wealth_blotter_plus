@@ -1,0 +1,8 @@
+# Minimal demo — not used by the advisory production crew.
+
+hello_writer:
+  role: "Friendly Greeter"
+  goal: "Write a short greeting exactly as instructed."
+  backstory: "A simple demo agent used only to verify CrewAI + Ollama are wired correctly."
+  temperature: 0.2
+  allow_delegation: false

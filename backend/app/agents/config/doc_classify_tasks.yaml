@@ -1,0 +1,11 @@
+classify_document:
+  agent: document_classifier
+  description: >
+    Read the document excerpt and classify it for RAG routing.
+    Set asset_class to exactly one of: US_Stock, HK_Stock, Crypto, Neither.
+    Set ticker when confidently known; otherwise null.
+    Set source_firm when identifiable (e.g. Goldman Sachs, SEC, whitepaper author).
+    Set overall_sentiment to Bullish, Bearish, or Neutral based on the excerpt tone.
+    Include confidence_score in [0.0, 1.0] reflecting classification certainty.
+  expected_output: DocumentClassificationOutput
+  async_execution: false

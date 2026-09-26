@@ -1,0 +1,19 @@
+{
+  "default_lookback_window": "5Y",
+  "default_lookback_days": 1825,
+  "parse_timeout_seconds": 120,
+  "run_timeout_seconds": 120,
+  "phase": "phase1",
+  "feature_flags": {
+    "house_research_rag": true,
+    "market_research_web": true,
+    "external_research_llm": false,
+    "strategist_stub_ok": false
+  },
+  "excel_timeouts": {
+    "parse_ms": 120000,
+    "params_ms": 15000,
+    "run_ms": 120000,
+    "pdf_ms": 30000
+  }
+}

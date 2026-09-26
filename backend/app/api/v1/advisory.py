@@ -1,9 +1,10 @@
-"""Portfolio & trade analysis endpoints (scaffold)."""
+"""Portfolio & trade analysis endpoints."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from backend.app.agents.crew import run_advisory_crew
 from backend.app.config import Settings, get_settings
 from backend.app.core.security import AuthContext, get_current_user
 from backend.app.schemas.payload_models import (
@@ -30,23 +31,24 @@ async def analyze_portfolio(
     settings: Settings = Depends(get_settings),
 ) -> AdvisoryAnalyzeResponse:
     """
-    Trigger CrewAI analysis (stub).
+    Trigger CrewAI analysis via local Ollama (or cloud LLM if USE_CLOUD_LLM=true).
 
-    Real orchestration wires `backend.app.agents.crew` + self-healing.
     Confidence routing: >= threshold → blotter; else HITL.
     """
-    # Placeholder confidence until crew is wired
-    confidence = 0.5
-    route = _route_for_confidence(confidence, settings.confidence_threshold)
+    result = await run_advisory_crew(
+        portfolio_id=payload.portfolio_id,
+        anonymized_context={
+            "client_ref": payload.client_ref,
+            "notes": payload.notes,
+        },
+    )
+    route = _route_for_confidence(result.confidence_score, settings.confidence_threshold)
     return AdvisoryAnalyzeResponse(
         advisor_id=user.advisor_id,
         portfolio_id=payload.portfolio_id,
-        confidence_score=confidence,
+        confidence_score=result.confidence_score,
         route=route,
-        message=(
-            "Scaffold response — wire CrewAI in agents/crew.py. "
-            "HITL expected until real agent confidence is produced."
-        ),
+        message=result.rationale or f"Crew complete; routed to {route.value}",
     )
 
 

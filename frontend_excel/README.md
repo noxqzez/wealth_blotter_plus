@@ -1,6 +1,24 @@
-# Excel Office.js Task Pane (scaffold)
+# Excel task pane — local HTTPS (Mac)
 
-- Dev server: `pnpm install && pnpm dev` → `https://localhost:3000` (mkcert)
-- Sideload `manifest.xml` in Excel
-- Set `VITE_API_BASE_URL` if the API is not on `http://localhost:8000`
-- Auth token key (temporary): `localStorage.sb_access_token` — replace with Supabase Auth session helpers
+Excel blocks unsigned/self-signed certs (“not signed by a valid security certificate”).
+
+## One-time setup (run in Terminal.app — needs your Mac password)
+
+```bash
+brew install mkcert
+mkcert -install
+cd /Users/oscarferrari/Documents/wealth_blotter_plus/frontend_excel
+npm install
+npm run certs
+```
+
+## Every session
+
+```bash
+cd /Users/oscarferrari/Documents/wealth_blotter_plus/frontend_excel
+npm run dev
+```
+
+Then sideload `manifest.xml` in Excel.
+
+If the error persists after `mkcert -install`, quit Excel fully (Cmd+Q) and reopen.

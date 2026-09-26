@@ -1,11 +1,4 @@
 {
-  "min_cash_buffer_pct": 0.05,
-  "max_single_name_weight_pct": 0.10,
-  "max_crypto_weight_pct": 0.05,
   "confidence_threshold": 0.85,
-  "jurisdictions": {
-    "sfc_enabled": true,
-    "sec_enabled": true,
-    "allowed_markets": ["us", "hk", "crypto"]
-  }
+  "coin_temperature": 2
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 import structlog
 from fastapi import FastAPI, Request, Response
@@ -17,6 +18,7 @@ from backend.app.core.rules_engine import RulesEngineError, get_rules_engine
 
 structlog.configure(
     processors=[
+        structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.JSONRenderer(),
@@ -52,7 +54,8 @@ app.add_middleware(
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Correlation-ID"],
+    expose_headers=["X-Request-ID", "X-Process-Time-Ms"],
 )
 
 
@@ -61,11 +64,25 @@ async def request_timing_and_audit_hooks(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
-    """Record latency; technical limit enforcement lives on ingest routes."""
+    """Bind correlation id, record latency."""
+    correlation_id = (
+        request.headers.get("X-Request-ID")
+        or request.headers.get("X-Correlation-ID")
+        or str(uuid4())
+    )
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(correlation_id=correlation_id)
+    request.state.correlation_id = correlation_id
+
     started = time.perf_counter()
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        structlog.contextvars.clear_contextvars()
+        raise
     elapsed_ms = (time.perf_counter() - started) * 1000
     response.headers["X-Process-Time-Ms"] = f"{elapsed_ms:.2f}"
+    response.headers["X-Request-ID"] = correlation_id
     logger.info(
         "http_request",
         method=request.method,

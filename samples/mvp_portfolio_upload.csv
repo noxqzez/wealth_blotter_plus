@@ -1,0 +1,7 @@
+client_alias,ticker,quantity,asset_class,currency
+demo_client,AAPL,25,EQUITY,USD
+demo_client,MSFT,15,EQUITY,USD
+demo_client,JPM,40,EQUITY,USD
+demo_client,0700.HK,100,EQUITY,HKD
+demo_client,9988.HK,80,EQUITY,HKD
+demo_client,USD,0,CASH,USD

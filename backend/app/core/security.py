@@ -71,6 +71,16 @@ async def get_current_user(
     ],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AuthContext:
+    # MVP local demo: allow requests without JWT when explicitly enabled
+    if settings.dev_auth_bypass and settings.environment == "development":
+        if credentials is None:
+            return AuthContext(
+                advisor_id=UUID(settings.dev_advisor_id),
+                email="dev@localhost",
+                role="dev_bypass",
+                raw_claims={"sub": settings.dev_advisor_id, "bypass": True},
+            )
+
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

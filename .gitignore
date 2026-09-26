@@ -27,6 +27,7 @@ uv.lock
 node_modules/
 frontend_excel/dist/
 frontend_excel/.vite/
+frontend_excel/.certs/
 *.local
 
 # Streamlit
@@ -48,3 +49,8 @@ frontend_excel/.vite/
 tmp/
 temp/
 .cache/
+
+# Per-run CrewAI audit dumps (keep workflow READMEs)
+backend/app/agents/audits/*/local_audit_*.md
+backend/app/agents/audits/*/run_*.md
+frontend_excel/*.tsbuildinfo

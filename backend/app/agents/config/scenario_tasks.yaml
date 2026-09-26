@@ -1,0 +1,17 @@
+# WF-02 scenario tasks
+
+parse_scenario:
+  description: >
+    Parse the advisor's free-text market scenario into scenario_params.
+    Use CRYPTO (never Coins) for crypto asset class tags.
+    Default lookback_window to 5Y and base_currency to USD when unclear.
+    Do not invent numeric portfolio weights or optimizer math.
+    severity must be exactly low, medium, or high (pick one).
+    tone must be exactly risk_off, risk_on, or neutral (pick one).
+    Never output placeholder tokens like "string" or "low|medium|high".
+    Return ONLY a JSON object (no markdown, no explanation).
+  expected_output: ScenarioParams
+
+stub_note: >
+    Phase-1 strategy_view is built in Python (stub) when feature_flags.strategist_stub_ok
+    is true. Live strategist/content CrewAI tasks wire in Wave C/D run orchestration.

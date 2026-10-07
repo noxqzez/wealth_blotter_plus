@@ -88,6 +88,48 @@ _EXAMPLE_JSON = {
     },
 }
 
+_EXAMPLE_JSON_RISK_ON = {
+    "message_type": "scenario_params",
+    "user_prompt": "NASDAQ doubles over the next year on AI boom",
+    "scenario": {
+        "scenario_name": "Nasdaq Doubling on AI Boom",
+        "scenario_type": "equity_rally",
+        "severity": "high",
+        "tone": "risk_on",
+        "base_currency": "USD",
+        "investment_horizon": "1Y",
+        "lookback_window": "5Y",
+        "data_frequency": "daily",
+    },
+    "detected_factors": {
+        "macro_factors": ["equity_rally", "ai_boom"],
+        "explicit_market_levels": {},
+        "impacted_asset_classes": ["us_equities", "crypto"],
+    },
+    "market_data_request_params": {
+        "lookback_window": "5Y",
+        "frequency": "daily",
+        "required_fields": ["adjusted_close", "dividend_yield", "volume"],
+        "include_cash_proxy": True,
+    },
+    "research_context_tags": ["nasdaq", "ai_boom", "risk_on", "equity_rally"],
+    "downstream_instructions": {
+        "for_market_data_service": (
+            "Retrieve adjusted close for portfolio tickers plus approved crypto universe."
+        ),
+        "for_research_agents": (
+            "Retrieve views on equity rally, AI boom, and risk-on positioning."
+        ),
+        "for_quant_agent": (
+            "Derive numeric shocks separately; do not invent portfolio weights here."
+        ),
+    },
+    "confidence": {
+        "scenario_classification_confidence": 0.8,
+        "horizon_selection_confidence": 0.7,
+    },
+}
+
 
 def _load_yaml(name: str) -> dict[str, Any]:
     path = _CONFIG_DIR / name
@@ -115,43 +157,112 @@ def _build_agent(key: str) -> Agent:
 
 
 def _prompt_tone_override(user_prompt: str) -> str | None:
-    """Strong lexical cues beat LLM tone mistakes for Phase-1 UAT."""
+    """Strong lexical cues beat LLM tone mistakes for Phase-1 UAT.
+
+    Conflicting upside + downside cues (e.g. one name crashes while another
+    rises, or risk-off shocks mixed with rallies) resolve to ``neutral`` so
+    mixed client scenarios are not flattened to risk_off by a single token.
+    Explicit ``risk on`` / ``risk off`` phrases still win first.
+    """
     lower = (user_prompt or "").lower()
-    if any(
-        k in lower
-        for k in (
-            "risk off",
-            "risk-off",
-            "selloff",
-            "sell-off",
-            "crash",
-            "plunge",
-            "collapse",
-            "recession",
-        )
-    ):
+    # Explicit advisor phrases win first.
+    if re.search(r"\brisk[\s_-]*on\b", lower):
+        return "risk_on"
+    if re.search(r"\brisk[\s_-]*off\b", lower):
         return "risk_off"
-    if any(
-        k in lower
-        for k in (
-            "all time high",
-            "all-time high",
-            "record high",
-            "risk on",
-            "risk-on",
-            "rally",
-            "surge",
-            "soar",
-            "melt-up",
-            "melt up",
-        )
+    if re.search(r"\b(mixed|balanced)\s+tone\b", lower) or re.search(
+        r"\btone\s*[:=]?\s*mixed\b", lower
     ):
-        return "risk_on"
-    if re.search(r"\b(ath)\b", lower):
-        return "risk_on"
-    if re.search(r"(reach|hit|hits|hitting|at).{0,24}\bhigh\b", lower):
+        return "neutral"
+
+    off_hit = _prompt_has_risk_off_cues(lower)
+    on_hit = _prompt_has_risk_on_cues(lower)
+    if off_hit and on_hit:
+        return "neutral"
+    if off_hit:
+        return "risk_off"
+    if on_hit:
         return "risk_on"
     return None
+
+
+_RISK_OFF_KEYWORDS: tuple[str, ...] = (
+    "selloff",
+    "sell-off",
+    "crash",
+    "crashes",
+    "crashed",
+    "plung",  # plunge / plunges / plunged
+    "collapse",
+    "recession",
+    "bear market",
+    "drawdown",
+    "geopolit",
+    "sanction",
+    "oil shock",
+    "oil-price",
+    "brent",
+    "wti",
+    "rate hike",
+    "rates hike",
+    "rate spike",
+    "rates spike",
+    "interest rate spike",
+    "interest rates spike",
+    "hawkish",
+)
+
+
+_RISK_ON_KEYWORDS: tuple[str, ...] = (
+    "all time high",
+    "all-time high",
+    "record high",
+    "rally",
+    "surge",
+    "soar",
+    "melt-up",
+    "melt up",
+    "bull market",
+    "bullish",
+    "euphoria",
+    "breakout",
+    "meltup",
+)
+
+
+def _prompt_has_risk_off_cues(lower: str) -> bool:
+    if any(k in lower for k in _RISK_OFF_KEYWORDS):
+        return True
+    if re.search(r"\b(crash|plunge|collapse|recession)(es|ed|ing)?\b", lower):
+        return True
+    return False
+
+
+def _prompt_has_risk_on_cues(lower: str) -> bool:
+    if any(k in lower for k in _RISK_ON_KEYWORDS):
+        return True
+    if re.search(r"\b(ath)\b", lower):
+        return True
+    if re.search(r"(reach|hit|hits|hitting|at).{0,24}\bhigh\b", lower):
+        return True
+    # Upside price moves: doubling / 2x / triples / moonshots / rises.
+    if re.search(
+        r"\b(doubl\w*|tripl\w*|2x|3x|ten[- ]bagger|moon(?:shot)?)\b",
+        lower,
+    ):
+        return True
+    if re.search(
+        r"\b(rise|rises|rising|rose|gain|gains|gaining|upside|outperform\w*)\b",
+        lower,
+    ):
+        return True
+    if re.search(
+        r"\b(nasdaq|s&p|s&p500|spx|equit(?:y|ies)|tech)\b.{0,40}\b"
+        r"(up|rise|rising|gains?|gain|boom|expand\w*)\b",
+        lower,
+    ):
+        return True
+    return False
 
 
 def _coerce_scenario_payload(data: object, *, user_prompt: str) -> dict[str, Any]:
@@ -168,20 +279,26 @@ def _coerce_scenario_payload(data: object, *, user_prompt: str) -> dict[str, Any
     scenario = dict(scenario)
 
     severity = str(scenario.get("severity", "medium")).strip().lower()
-    if severity not in {"low", "medium", "high"}:
-        if "high" in severity:
+    # Placeholder enums like "low|medium|high" must not pick a substring match.
+    if "|" in severity or severity in {"string", "snake_case_tag", ""}:
+        severity = "medium"
+    elif severity not in {"low", "medium", "high"}:
+        if severity.startswith("high") or severity.endswith("high"):
             severity = "high"
-        elif "low" in severity:
+        elif severity.startswith("low") or severity.endswith("low"):
             severity = "low"
         else:
             severity = "medium"
     scenario["severity"] = severity
 
     tone = str(scenario.get("tone", "neutral")).strip().lower().replace(" ", "_")
-    if tone not in {"risk_off", "risk_on", "neutral"}:
-        if "off" in tone:
+    # Placeholder "risk_off|risk_on|neutral" contains "off" — never treat as risk_off.
+    if "|" in tone or tone in {"string", "snake_case_tag", ""}:
+        tone = "neutral"
+    elif tone not in {"risk_off", "risk_on", "neutral"}:
+        if tone in {"riskoff", "off"} or tone.endswith("_off"):
             tone = "risk_off"
-        elif "on" in tone:
+        elif tone in {"riskon", "on"} or tone.endswith("_on"):
             tone = "risk_on"
         else:
             tone = "neutral"
@@ -378,11 +495,21 @@ async def parse_scenario_prompt(
         f"Advisor scenario prompt:\n{prompt_text}\n\n"
         "Rules:\n"
         "- Fill real values from the prompt (never the words 'string' or 'low|medium|high').\n"
-        "- severity must be exactly one of: low, medium, high.\n"
-        "- tone must be exactly one of: risk_off, risk_on, neutral.\n"
+        "- severity must be exactly one of: low, medium, high "
+        "(never write 'low|medium|high').\n"
+        "- tone must be exactly one of: risk_off, risk_on, neutral "
+        "(never write 'risk_off|risk_on|neutral').\n"
+        "- Prefer risk_on for upside/rally/ATH/doubling scenarios; "
+        "risk_off for crash/selloff/recession/oil-war shocks; "
+        "neutral when the prompt mixes upside and downside "
+        "(e.g. one asset crashes while another rises, or rates spike "
+        "alongside a rally); else neutral.\n"
         "- Copy user_prompt from the advisor prompt verbatim.\n"
         "- Return ONLY a JSON object (no markdown fences, no explanation).\n\n"
-        f"Example of a valid response:\n{json.dumps(_EXAMPLE_JSON)}\n\n"
+        "Example A (risk_off oil shock):\n"
+        f"{json.dumps(_EXAMPLE_JSON)}\n\n"
+        "Example B (risk_on equity upside):\n"
+        f"{json.dumps(_EXAMPLE_JSON_RISK_ON)}\n\n"
         f"Return ONLY valid JSON matching `{expected}`."
     )
 
@@ -415,10 +542,12 @@ async def parse_scenario_prompt(
                 name="scenario_schema_repair",
                 description=(
                     f"{ctx}\n\n"
-                    "Fix the JSON. severity ∈ {{low,medium,high}}; "
-                    "tone ∈ {{risk_off,risk_on,neutral}}. "
+                    "Fix the JSON. severity must be exactly low, medium, or high; "
+                    "tone must be exactly risk_off, risk_on, or neutral. "
+                    "Never emit pipe-joined enums like risk_off|risk_on|neutral. "
                     "No placeholder strings. JSON only.\n"
-                    f"Example:\n{json.dumps(_EXAMPLE_JSON)}"
+                    f"Example risk_off:\n{json.dumps(_EXAMPLE_JSON)}\n"
+                    f"Example risk_on:\n{json.dumps(_EXAMPLE_JSON_RISK_ON)}"
                 ),
                 expected_output="Valid ScenarioParams JSON only",
                 agent=heal_agent,

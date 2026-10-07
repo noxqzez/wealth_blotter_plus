@@ -7,6 +7,7 @@
  */
 
 import DOMPurify from "dompurify";
+import { authHeaders } from "./auth";
 
 const PARAMS_SHEET = "scenario_params";
 /** Legacy name from early WF-02; still readable so old workbooks keep working. */
@@ -165,16 +166,6 @@ function newCorrelationId(): string {
 
 function supportMessage(errorCode: string, correlationId: string): string {
   return `${SUPPORT_MESSAGE}\nRef: ${errorCode} · ${shortRef(correlationId)}`;
-}
-
-function authHeaders(correlationId: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Request-ID": correlationId,
-  };
-  const token = localStorage.getItem("sb_access_token");
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return headers;
 }
 
 function formatApiError(
@@ -453,7 +444,6 @@ async function writeRebalancedPortfolio(
   scenarioRunId: string,
 ): Promise<void> {
   const positions = body.opti_folio ?? [];
-  const points = body.talking_points ?? [];
   const metricKeys: (keyof Metrics)[] = [
     "expected_return",
     "annualized_volatility",
@@ -497,9 +487,7 @@ async function writeRebalancedPortfolio(
     ]);
   }
   const optiCount = positions.length;
-  rows.push([]);
-  rows.push(["talking_points"]);
-  for (const tp of points) rows.push([tp.bullet]);
+  // Market commentary / talking points are PDF-only (simple + Gamma).
 
   const width = Math.max(...rows.map((r) => r.length), 1);
   const padded = rows.map((r) => {

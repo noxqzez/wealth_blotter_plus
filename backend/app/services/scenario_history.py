@@ -44,6 +44,9 @@ class ScenarioHistoryResult:
     provider_symbols: dict[str, str]
     lookback_days: int
     messages: list[str]
+    # Sparse panel (ffill only): used for base/opti performance charts.
+    # Leading NaNs remain so tickers can be dropped until they appear.
+    prices_panel: pd.DataFrame | None = None
 
 
 def parse_lookback_days(lookback_window: str | None, *, default: int = _DEFAULT_LOOKBACK_DAYS) -> int:
@@ -189,10 +192,11 @@ def fetch_scenario_history(
 
     prices = pd.DataFrame(series).sort_index()
     prices = prices.apply(pd.to_numeric, errors="coerce")
-    # Align calendars: forward-fill limited gaps, then drop rows still all-NaN
-    prices = prices.ffill(limit=5).dropna(how="all")
-    # Require at least one non-cash equity/crypto observation per date for returns
-    prices = prices.dropna(how="any")
+    # Soft align: forward-fill limited gaps; keep leading NaNs for performance.
+    prices_soft = prices.ffill(limit=5).dropna(how="all")
+    prices_panel = prices_soft.copy()
+    # Hard overlap for risk/optimizer covariance (existing behavior).
+    prices = prices_soft.dropna(how="any")
     if prices.empty or len(prices) < 5:
         raise ScenarioHistoryError(
             "Insufficient overlapping history after calendar alignment"
@@ -209,6 +213,7 @@ def fetch_scenario_history(
         n_days=len(prices),
         lookback_days=lookback_days,
         bar_count=len(bars),
+        panel_days=len(prices_panel),
     )
     return ScenarioHistoryResult(
         prices=prices,
@@ -217,6 +222,7 @@ def fetch_scenario_history(
         provider_symbols=provider_symbols,
         lookback_days=lookback_days,
         messages=messages,
+        prices_panel=prices_panel,
     )
 
 

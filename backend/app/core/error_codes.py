@@ -32,6 +32,10 @@ WBP_SCENARIO_COMPLIANCE = "WBP-SCENARIO-COMPLIANCE"
 WBP_SCENARIO_INVALID_PROMPT = "WBP-SCENARIO-INVALID-PROMPT"
 WBP_SCENARIO_QUANT_SAFETY = "WBP-SCENARIO-QUANT-SAFETY"
 
+# --- Copilot ops queries (read / load / refresh; no ID writes) ----------------
+WBP_COPILOT_OPS = "WBP-COPILOT-OPS"
+WBP_COPILOT_UNAVAILABLE = "WBP-COPILOT-UNAVAILABLE"
+
 SUPPORT_MESSAGE = (
     "System error, please try again later and raise to support."
 )

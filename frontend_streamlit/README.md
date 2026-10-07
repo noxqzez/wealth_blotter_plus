@@ -1,81 +1,60 @@
-# Compliance investigation chat (Phase 1)
+# Streamlit ops UI
 
-Streamlit ops UI for querying the unified `audit_events` corpus and citing
-`trading_rules` / versioned `configs`. **No Excel work in this surface.**
+Two surfaces in `app.py`:
+
+1. **Usage & Control Monitor** (managers) — adoption KPIs, estimated unit economics,
+   HITL / trading-rule risk view. Uses Supabase **service role** when configured;
+   otherwise realistic mock data.
+2. **Compliance chat** — Phase 1 investigation over `audit_events`.
 
 ```bash
-# API must be running (DEV_AUTH_BYPASS=true for local demos without JWT)
+# API (for compliance chat)
 uv run uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Optional: set Bearer JWT if bypass is off
-export WBP_API_BASE=http://localhost:8000/api/v1
-# export WBP_API_JWT=eyJ...
-
+# Exec monitor — local manager bypass + mock data (no Supabase required)
+export DEV_MANAGER_BYPASS=true
 uv run streamlit run frontend_streamlit/app.py
 ```
 
-Do not put service-role keys in Streamlit client secrets for browser exposure.
-Prefer calling FastAPI with the user JWT, or server-side secrets only in
-`.streamlit/secrets.toml` (gitignored).
+Prefer `uv run` (project `.venv`). Anaconda’s system `pyarrow` is often broken
+(brotli ABI mismatch); this app avoids `st.dataframe` / Altair for that reason.
 
-## Phase 1 demo checklist
+Mock unit economics use **8 bps fee capture on trade notional** (not gross notional)
+so Revenue / cost lands in a marketing-viable ~12–25× band. Live telemetry will
+replace estimated token costs; fee bps can later come from real commission tables.
 
-1. Apply DDL: `backend/app/db/migration_compliance_phase1.sql` (or full `schema.sql`)
-2. Seed: `backend/app/db/seed.sql` (sample events with fixed IDs below)
-3. Open **Compliance chat** → **New session**
-4. Ask: `Does log ID aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001 violate max single-name weight?`
-5. Expand **Sources & Audit Logs Used** — expect `audit_event_id` + `trading_rules` / `configs`
-6. **Export session audit trace** → download JSON (and markdown)
 
-### Example queries
 
-| Query | What Phase 1 does |
-|-------|-------------------|
-| `Does log ID aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001 violate …?` | Lookup by id → cite weight vs `max_single_name_weight` / guardrails |
-| `Why was yesterday's portfolio_update flagged?` | Time + action filter → list events + policy notes |
-| `Show application_event for ticker AAPL` | Entity ref filter on `entity_refs.ticker` |
+## Manager access
 
-### Insert sample `application_event` rows
+| Mode | Config |
+|------|--------|
+| Local demo | `DEV_MANAGER_BYPASS=true` |
+| Allowlist | `MANAGER_USER_IDS` and/or `MANAGER_EMAILS` (comma-separated) in env or `.streamlit/secrets.toml` |
+| Live data | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (server-side only — never ship to browsers) |
 
-```sql
-INSERT INTO audit_events (
-  source_type, source_name, event_action, event_type,
-  advisor_id, actor_id, entity_refs, payload, normalized_params
-) VALUES (
-  'application_event',
-  'portfolio_api_v1',
-  'portfolio_update',
-  'portfolio',
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000001',
-  '{"client_alias": "demo_client_a", "ticker": "AAPL"}'::jsonb,
-  '{"positions_count": 1, "row_count": 1, "ticker_count": 1,
-    "positions": [{"ticker": "AAPL", "current_weight_pct": 0.72}]}'::jsonb,
-  '{"event_action": "portfolio_update"}'::jsonb
-);
+Optional identity display: `WBP_MANAGER_USER_ID` / `WBP_MANAGER_EMAIL` matching the allowlist.
+
+## What the monitor reads
+
+| KPI / view | Source |
+|------------|--------|
+| Active advisors / runs | `scenario_runs` |
+| Staged order value | `staged_trades.notional_value` |
+| Automation rate | Inverse of `scenario_param_diffs` edits + `portfolios.import_hitl` |
+| Satisfaction | `interaction_ratings` |
+| Rule rejects | `staged_trades.metadata` (or mock `rule_status`) |
+| Token spend | **Estimated** until usage telemetry exists (`usage_metrics` ready) |
+
+Sidebar cost controls (`coin_temperature`, token cap, open-LLM route) are **UI-only** for now.
+
+## Compliance chat
+
+See prior Phase 1 notes below. Prefer FastAPI + user JWT for chat; do not put
+service-role keys in client-exposed config.
+
+```bash
+export WBP_API_BASE=http://localhost:8000/api/v1
+# export WBP_API_JWT=eyJ...
+uv run streamlit run frontend_streamlit/app.py
 ```
-
-Live portfolio updates also emit via `POST /api/v1/portfolio/update`
-(`source_name=portfolio_api_v1`). Emission failures are logged and do not
-block the blotter write.
-
-### Fixed seed log IDs
-
-- `aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001` — concentrated AAPL weight (yesterday)
-- `aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002` — crypto-heavy update (recent)
-- `aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0003` — `agent_telemetry` placeholder
-
-## Phase 2 handoff (crew_ai_coding)
-
-Do **not** edit `backend/app/agents/` from this workstream. Agent runs should
-call the documented writer contract:
-
-- Module: `backend.app.services.audit_events.AgentTelemetryWriterContract`
-- `source_type = "agent_telemetry"`, `source_name = "agent_trace_run"`
-- Always anonymize before persist; never log secrets
-
-## `usage_metrics` vs `audit_events`
-
-`usage_metrics` stays lightweight product telemetry (downloads, latency).
-Compliance investigation uses **only** `audit_events`. Do not dual-write
-unless a future product decision maps specific usage actions into the corpus.

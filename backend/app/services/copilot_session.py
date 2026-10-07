@@ -20,6 +20,15 @@ _sessions: dict[str, CopilotSessionState] = {}
 class CopilotSessionError(LookupError):
     """Session missing or not owned by the requesting advisor."""
 
+    def __init__(
+        self,
+        message: str = (
+            "Chat session expired or was reset (common after reloading the "
+            "task pane or restarting the backend). Reopen Copilot to start "
+            "a new session, then continue from Import securities."
+        ),
+    ) -> None:
+        super().__init__(message)
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -49,7 +58,7 @@ def get_session(*, session_id: str, advisor_id: UUID) -> CopilotSessionState:
     with _lock:
         state = _sessions.get(session_id)
         if state is None or state.advisor_id != advisor_id:
-            raise CopilotSessionError("Session not found")
+            raise CopilotSessionError()
         return state.model_copy(deep=True)
 
 
@@ -58,7 +67,7 @@ def save_session(state: CopilotSessionState) -> CopilotSessionState:
     with _lock:
         existing = _sessions.get(state.session_id)
         if existing is None or existing.advisor_id != state.advisor_id:
-            raise CopilotSessionError("Session not found")
+            raise CopilotSessionError()
         _sessions[state.session_id] = state.model_copy(deep=True)
         return state.model_copy(deep=True)
 
@@ -73,7 +82,7 @@ def update_session(
     with _lock:
         state = _sessions.get(session_id)
         if state is None or state.advisor_id != advisor_id:
-            raise CopilotSessionError("Session not found")
+            raise CopilotSessionError()
         updated = state.model_copy(update=fields)
         _sessions[session_id] = updated
         return updated.model_copy(deep=True)

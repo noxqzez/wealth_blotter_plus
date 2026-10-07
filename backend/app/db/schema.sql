@@ -9,9 +9,14 @@ CREATE EXTENSION IF NOT EXISTS "vector";
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS clients (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    client_alias    TEXT NOT NULL UNIQUE,
+    client_alias    TEXT NOT NULL,
+    advisor_id      UUID NOT NULL DEFAULT '00000000-0000-4000-8000-000000000001'::uuid,
+    -- Optional suitability dial for future advisor checks (1=cold … 5=aggressive). Unused in MVP flows.
+    risk_profile    SMALLINT NOT NULL DEFAULT 3
+                    CHECK (risk_profile BETWEEN 1 AND 5),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (advisor_id, client_alias)
 );
 
 -- ---------------------------------------------------------------------------
@@ -33,6 +38,7 @@ CREATE TABLE IF NOT EXISTS portfolios (
 );
 
 CREATE INDEX IF NOT EXISTS idx_portfolios_client_id ON portfolios (client_id);
+CREATE INDEX IF NOT EXISTS idx_clients_advisor_id ON clients (advisor_id);
 
 -- ---------------------------------------------------------------------------
 -- Positions blotter
@@ -144,6 +150,7 @@ CREATE TABLE IF NOT EXISTS usage_metrics (
     event_action            TEXT NOT NULL,
     endpoint_or_component   TEXT NOT NULL,
     client_alias            TEXT,
+    advisor_id              UUID,
     execution_time_ms       INTEGER,
     metadata                JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -151,6 +158,9 @@ CREATE TABLE IF NOT EXISTS usage_metrics (
 
 CREATE INDEX IF NOT EXISTS idx_usage_metrics_created_at ON usage_metrics (created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_metrics_event_action ON usage_metrics (event_action);
+CREATE INDEX IF NOT EXISTS idx_usage_metrics_advisor_id
+    ON usage_metrics (advisor_id)
+    WHERE advisor_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- Compliance Phase 1: unified audit corpus + chat persistence
@@ -269,12 +279,113 @@ ALTER TABLE portfolio_positions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE trading_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE usage_metrics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE interaction_ratings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE market_eod_prices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scenario_market_price_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE compliance_chat_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE compliance_chat_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE compliance_chat_traces ENABLE ROW LEVEL SECURITY;
+
+-- Phase 1 pilot profiles (Auth uid = id)
+CREATE TABLE IF NOT EXISTS profiles (
+    id                  UUID PRIMARY KEY,
+    email               TEXT NOT NULL,
+    role                TEXT NOT NULL DEFAULT 'advisor'
+                        CHECK (role = 'advisor'),
+    approval_status     TEXT NOT NULL DEFAULT 'PENDING_APPROVAL'
+                        CHECK (approval_status IN (
+                            'PENDING_APPROVAL',
+                            'APPROVED',
+                            'REJECTED'
+                        )),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS profiles_select_own ON profiles;
+CREATE POLICY profiles_select_own ON profiles
+    FOR SELECT TO authenticated
+    USING (id = auth.uid());
+
+DROP POLICY IF EXISTS clients_select_own ON clients;
+CREATE POLICY clients_select_own ON clients
+    FOR SELECT TO authenticated
+    USING (advisor_id = auth.uid());
+DROP POLICY IF EXISTS clients_insert_own ON clients;
+CREATE POLICY clients_insert_own ON clients
+    FOR INSERT TO authenticated
+    WITH CHECK (advisor_id = auth.uid());
+DROP POLICY IF EXISTS clients_update_own ON clients;
+CREATE POLICY clients_update_own ON clients
+    FOR UPDATE TO authenticated
+    USING (advisor_id = auth.uid())
+    WITH CHECK (advisor_id = auth.uid());
+
+DROP POLICY IF EXISTS portfolios_select_own ON portfolios;
+CREATE POLICY portfolios_select_own ON portfolios
+    FOR SELECT TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM clients c
+            WHERE c.id = client_id AND c.advisor_id = auth.uid()
+        )
+    );
+DROP POLICY IF EXISTS portfolios_write_own ON portfolios;
+CREATE POLICY portfolios_write_own ON portfolios
+    FOR ALL TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM clients c
+            WHERE c.id = client_id AND c.advisor_id = auth.uid()
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM clients c
+            WHERE c.id = client_id AND c.advisor_id = auth.uid()
+        )
+    );
+
+DROP POLICY IF EXISTS portfolio_positions_select_own ON portfolio_positions;
+CREATE POLICY portfolio_positions_select_own ON portfolio_positions
+    FOR SELECT TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1
+            FROM portfolios p
+            JOIN clients c ON c.id = p.client_id
+            WHERE p.id = portfolio_id AND c.advisor_id = auth.uid()
+        )
+    );
+DROP POLICY IF EXISTS portfolio_positions_write_own ON portfolio_positions;
+CREATE POLICY portfolio_positions_write_own ON portfolio_positions
+    FOR ALL TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1
+            FROM portfolios p
+            JOIN clients c ON c.id = p.client_id
+            WHERE p.id = portfolio_id AND c.advisor_id = auth.uid()
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1
+            FROM portfolios p
+            JOIN clients c ON c.id = p.client_id
+            WHERE p.id = portfolio_id AND c.advisor_id = auth.uid()
+        )
+    );
+
+DROP POLICY IF EXISTS usage_metrics_select_own ON usage_metrics;
+CREATE POLICY usage_metrics_select_own ON usage_metrics
+    FOR SELECT TO authenticated
+    USING (advisor_id = auth.uid());
+DROP POLICY IF EXISTS usage_metrics_insert_own ON usage_metrics;
+CREATE POLICY usage_metrics_insert_own ON usage_metrics
+    FOR INSERT TO authenticated
+    WITH CHECK (advisor_id = auth.uid());
 
 -- Authenticated read of configs / active trading rules (future SSO)
 DROP POLICY IF EXISTS configs_read_authenticated ON configs;
@@ -288,6 +399,16 @@ CREATE POLICY trading_rules_read_authenticated ON trading_rules
 DROP POLICY IF EXISTS market_eod_prices_read_authenticated ON market_eod_prices;
 CREATE POLICY market_eod_prices_read_authenticated ON market_eod_prices
     FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS interaction_ratings_select_own ON interaction_ratings;
+CREATE POLICY interaction_ratings_select_own ON interaction_ratings
+    FOR SELECT TO authenticated
+    USING (advisor_id = auth.uid());
+
+DROP POLICY IF EXISTS interaction_ratings_insert_own ON interaction_ratings;
+CREATE POLICY interaction_ratings_insert_own ON interaction_ratings
+    FOR INSERT TO authenticated
+    WITH CHECK (advisor_id = auth.uid());
 
 DROP POLICY IF EXISTS scenario_mkt_snap_select_own ON scenario_market_price_snapshots;
 CREATE POLICY scenario_mkt_snap_select_own ON scenario_market_price_snapshots
@@ -400,6 +521,7 @@ CREATE TABLE IF NOT EXISTS scenario_runs (
     risk_metrics_opti       JSONB,
     opti_folio              JSONB NOT NULL DEFAULT '[]'::jsonb,
     talking_points          JSONB,
+    performance_series      JSONB,
     feature_flags           JSONB NOT NULL DEFAULT '{}'::jsonb,
     -- True when Place All Orders saw Excel edits vs system-staged trades.
     orders_hitl             BOOLEAN NOT NULL DEFAULT false,
@@ -455,6 +577,28 @@ CREATE INDEX IF NOT EXISTS idx_staged_trades_run
     ON staged_trades (scenario_run_id);
 CREATE INDEX IF NOT EXISTS idx_staged_trades_portfolio
     ON staged_trades (portfolio_id);
+
+-- ---------------------------------------------------------------------------
+-- Interaction ratings (optional 1–5 stars after opti_folio; one per simulation)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS interaction_ratings (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    advisor_id          UUID NOT NULL,
+    scenario_run_id     UUID NOT NULL REFERENCES scenario_runs (id) ON DELETE CASCADE,
+    portfolio_id        UUID REFERENCES portfolios (id) ON DELETE SET NULL,
+    session_id          TEXT,
+    rating              SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    UNIQUE (scenario_run_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_interaction_ratings_advisor
+    ON interaction_ratings (advisor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_interaction_ratings_created_at
+    ON interaction_ratings (created_at DESC);
+
+COMMENT ON TABLE interaction_ratings IS
+    'Optional advisor star rating (1–5) after opti_folio; one row per scenario_run.';
 
 -- Optional FK from EOD snapshots → scenario_runs (table created earlier in this file)
 DO $$

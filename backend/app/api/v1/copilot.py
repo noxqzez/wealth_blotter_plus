@@ -43,12 +43,21 @@ def _http_fsm(exc: CopilotFsmError, *, correlation_id: str) -> HTTPException:
     )
 
 
-def _http_not_found(*, correlation_id: str) -> HTTPException:
+def _http_not_found(
+    *,
+    correlation_id: str,
+    message: str | None = None,
+) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail=error_payload(
             error_code=WBP_SCENARIO_CLIENT,
-            message="Session not found",
+            message=message
+            or (
+                "Chat session expired or was reset (common after reloading the "
+                "task pane or restarting the backend). Reopen Copilot to start "
+                "a new session, then continue from Import securities."
+            ),
             correlation_id=correlation_id or None,
             support=False,
         ),
@@ -116,7 +125,7 @@ async def post_copilot_action(
             limits=limits,
         )
     except CopilotSessionError as exc:
-        raise _http_not_found(correlation_id=cid) from exc
+        raise _http_not_found(correlation_id=cid, message=str(exc)) from exc
     except CopilotFsmError as exc:
         raise _http_fsm(exc, correlation_id=cid) from exc
     except Exception as exc:  # noqa: BLE001
@@ -134,17 +143,20 @@ async def post_copilot_message(
     payload: CopilotMessageRequest,
     request: Request,
     user: AuthContext = Depends(get_current_user),
+    rules: RulesEngine = Depends(get_rules_engine),
 ) -> CopilotAgentResponse:
-    """Free-text handler (scenario prompt / param edits / guardrail redirect)."""
+    """Free-text handler (ops lookups / scenario prompt / param edits)."""
     cid = _correlation_id(request)
+    limits = await rules.get_technical_limits()
     try:
         return await handle_message(
             session_id=session_id,
             advisor_id=user.advisor_id,
             text=payload.text,
+            limits=limits,
         )
     except CopilotSessionError as exc:
-        raise _http_not_found(correlation_id=cid) from exc
+        raise _http_not_found(correlation_id=cid, message=str(exc)) from exc
     except CopilotFsmError as exc:
         raise _http_fsm(exc, correlation_id=cid) from exc
     except Exception as exc:  # noqa: BLE001

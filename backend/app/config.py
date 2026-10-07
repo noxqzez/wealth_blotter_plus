@@ -38,10 +38,17 @@ class Settings(BaseSettings):
     confidence_threshold: float = Field(default=0.85, alias="CONFIDENCE_THRESHOLD")
 
     # MVP local demo: skip JWT and use a fixed advisor id
+    # NEVER enable in production / Render.
     dev_auth_bypass: bool = Field(default=False, alias="DEV_AUTH_BYPASS")
     dev_advisor_id: str = Field(
         default="00000000-0000-4000-8000-000000000001",
         alias="DEV_ADVISOR_ID",
+    )
+    # When true (or ENVIRONMENT=production), LLM routes require X-LLM-API-Key.
+    require_byok: bool = Field(default=False, alias="REQUIRE_BYOK")
+    # When true (or ENVIRONMENT=production), JWT users must be profiles.APPROVED.
+    require_pilot_approval: bool = Field(
+        default=False, alias="REQUIRE_PILOT_APPROVAL"
     )
 
     cors_origins: str = Field(

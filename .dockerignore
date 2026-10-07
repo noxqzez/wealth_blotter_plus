@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+.venv
+__pycache__
+*.pyc
+.git
+.cursor
+frontend_excel/node_modules
+frontend_excel/dist
+frontend_streamlit
+tests
+*.png
+.DS_Store

@@ -60,7 +60,7 @@ async def update_portfolio(
         ]
     )
     try:
-        draft = await validate_import(raw)
+        draft = await validate_import(raw, advisor_id=user.advisor_id)
         built = await build_base(
             BuildBaseRequest(portfolio_id=draft.portfolio_id, draft_id=draft.draft_id),
             limits=limits,

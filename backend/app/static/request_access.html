@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Request access — Wealth Blotter Plus</title>
+    <style>
+      :root {
+        --bg0: #0c1219;
+        --bg1: #141c27;
+        --ink: #e8eef6;
+        --muted: #8b9bb0;
+        --line: rgba(232, 238, 246, 0.12);
+        --accent: #3d8bfd;
+        --accent-ink: #04101f;
+        --ok: #3ecf8e;
+        --danger: #f07178;
+        --font: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: var(--font);
+        color: var(--ink);
+        background:
+          radial-gradient(900px 480px at 12% -10%, rgba(61, 139, 253, 0.22), transparent 55%),
+          radial-gradient(700px 420px at 100% 0%, rgba(62, 207, 142, 0.08), transparent 50%),
+          linear-gradient(165deg, var(--bg0), var(--bg1) 55%, #0a1016);
+      }
+      main {
+        width: min(420px, calc(100% - 2rem));
+        margin: 0 auto;
+        padding: 4.5rem 0 3rem;
+      }
+      .brand {
+        font-size: 0.75rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 0.75rem;
+      }
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: 1.75rem;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
+      }
+      .lead {
+        margin: 0 0 1.75rem;
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1.45;
+      }
+      form {
+        display: grid;
+        gap: 0.9rem;
+        padding: 1.25rem;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(20, 28, 39, 0.72);
+        backdrop-filter: blur(8px);
+      }
+      label {
+        display: grid;
+        gap: 0.35rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      input {
+        width: 100%;
+        padding: 0.7rem 0.8rem;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: #0a1016;
+        color: var(--ink);
+        font-size: 1rem;
+      }
+      input:focus {
+        outline: 2px solid rgba(61, 139, 253, 0.45);
+        border-color: transparent;
+      }
+      button {
+        margin-top: 0.25rem;
+        padding: 0.8rem 1rem;
+        border: 0;
+        border-radius: 8px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-weight: 650;
+        font-size: 0.95rem;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: wait;
+      }
+      .status {
+        min-height: 1.4em;
+        margin: 0.85rem 0 0;
+        font-size: 0.9rem;
+        line-height: 1.4;
+        color: var(--muted);
+      }
+      .status.ok {
+        color: var(--ok);
+      }
+      .status.err {
+        color: var(--danger);
+      }
+      .note {
+        margin: 1.5rem 0 0;
+        font-size: 0.8rem;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="brand">Wealth Blotter Plus</p>
+      <h1>Request pilot access</h1>
+      <p class="lead">
+        Register with your work email. An admin must approve your account before
+        you can sign in from the Excel add-in.
+      </p>
+      <form id="requestForm" novalidate>
+        <label>
+          Work email
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autocomplete="username"
+            required
+            placeholder="you@firm.com"
+          />
+        </label>
+        <label>
+          Password (min 8 characters)
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="new-password"
+            required
+            minlength="8"
+            placeholder="••••••••"
+          />
+        </label>
+        <label>
+          Confirm password
+          <input
+            id="passwordConfirm"
+            name="passwordConfirm"
+            type="password"
+            autocomplete="new-password"
+            required
+            minlength="8"
+          />
+        </label>
+        <button id="submitBtn" type="submit">Request access</button>
+      </form>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <p class="note">
+        After approval, use the Excel task pane to sign in with the same email
+        and password, and paste your own LLM API key (BYOK). See
+        <code>PILOT.md</code> in the private repo for Excel setup.
+      </p>
+    </main>
+    <script>
+      (function () {
+        const form = document.getElementById("requestForm");
+        const statusEl = document.getElementById("status");
+        const submitBtn = document.getElementById("submitBtn");
+
+        function setStatus(message, kind) {
+          statusEl.textContent = message || "";
+          statusEl.className = "status" + (kind ? " " + kind : "");
+        }
+
+        form.addEventListener("submit", async function (event) {
+          event.preventDefault();
+          const email = String(document.getElementById("email").value || "").trim();
+          const password = String(document.getElementById("password").value || "");
+          const confirm = String(
+            document.getElementById("passwordConfirm").value || ""
+          );
+
+          if (!email || !password) {
+            setStatus("Enter email and password.", "err");
+            return;
+          }
+          if (password.length < 8) {
+            setStatus("Password must be at least 8 characters.", "err");
+            return;
+          }
+          if (password !== confirm) {
+            setStatus("Passwords do not match.", "err");
+            return;
+          }
+
+          submitBtn.disabled = true;
+          setStatus("Submitting…");
+
+          try {
+            const res = await fetch("/api/v1/auth/register", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: email, password: password }),
+            });
+            let body = {};
+            try {
+              body = await res.json();
+            } catch (_e) {
+              body = {};
+            }
+
+            if (!res.ok) {
+              const detail = body.detail;
+              let msg = "Registration failed.";
+              if (typeof detail === "string") {
+                msg = detail;
+              } else if (detail && typeof detail === "object") {
+                msg = detail.message || detail.error_code || msg;
+              }
+              setStatus(msg, "err");
+              return;
+            }
+
+            setStatus(
+              body.message ||
+                "Request received. You will be able to sign in after admin approval.",
+              "ok"
+            );
+            form.reset();
+          } catch (_err) {
+            setStatus("Network error. Check the API URL and try again.", "err");
+          } finally {
+            submitBtn.disabled = false;
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

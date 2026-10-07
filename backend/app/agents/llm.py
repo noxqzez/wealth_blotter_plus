@@ -1,10 +1,11 @@
-"""LLM factory — Ollama by default; cloud providers via env flags."""
+"""LLM factory — Ollama by default; BYOK cloud keys via request context."""
 
 from __future__ import annotations
 
 from crewai import LLM
 
 from backend.app.config import Settings, get_settings
+from backend.app.core.byok import get_byok, require_byok_for_llm
 
 
 def build_llm(
@@ -15,11 +16,28 @@ def build_llm(
     """
     Build a CrewAI LLM.
 
-    Local (default): Ollama OpenAI-compatible endpoint — no cloud API key required.
-    Cloud: set USE_CLOUD_LLM=true and OPENAI_API_KEY / ANTHROPIC_API_KEY.
+    Production / pilot: uses request-scoped BYOK (``X-LLM-API-Key``).
+    Local development: Ollama when no BYOK present.
     """
     cfg = settings or get_settings()
     temp = cfg.llm_temperature if temperature is None else temperature
+    byok = get_byok()
+
+    if byok and byok.api_key:
+        if byok.provider == "anthropic":
+            return LLM(
+                model="anthropic/claude-sonnet-4-20250514",
+                api_key=byok.api_key,
+                temperature=temp,
+            )
+        return LLM(
+            model="openai/gpt-4o-mini",
+            api_key=byok.api_key,
+            temperature=temp,
+        )
+
+    # Raises in production / REQUIRE_BYOK when header missing.
+    require_byok_for_llm(settings=cfg)
 
     if cfg.use_cloud_llm and cfg.llm_provider.lower() in {"openai", "anthropic"}:
         if cfg.llm_provider.lower() == "openai":
@@ -34,7 +52,6 @@ def build_llm(
             temperature=temp,
         )
 
-    # CrewAI expects ollama/<model> and talks to Ollama's OpenAI-compatible /v1 API
     model_name = cfg.ollama_model
     if not model_name.startswith("ollama/"):
         model_name = f"ollama/{model_name}"

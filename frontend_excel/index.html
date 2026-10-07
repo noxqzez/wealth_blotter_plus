@@ -187,6 +187,42 @@
       button.danger:not(:disabled):hover {
         background: var(--danger-hover);
       }
+      button.rating {
+        background: #2f4f6f;
+        letter-spacing: 0.02em;
+      }
+      button.rating:not(:disabled):hover {
+        background: #3a6288;
+      }
+      .star-rating {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px 4px;
+        margin-right: 4px;
+      }
+      .star-rating button.star {
+        background: transparent;
+        color: #c5a35a;
+        font-size: 22px;
+        line-height: 1;
+        padding: 2px 3px;
+        min-width: 0;
+        font-weight: 400;
+        border-radius: 4px;
+      }
+      .star-rating button.star:not(:disabled):hover,
+      .star-rating button.star.is-hot {
+        background: transparent;
+        color: #e0b84a;
+      }
+      .star-rating button.star.is-filled {
+        color: #e0b84a;
+      }
+      .star-rating button.star:disabled {
+        background: transparent;
+        opacity: 0.55;
+      }
       #composer {
         display: flex;
         gap: 8px;
@@ -226,10 +262,101 @@
         color: var(--danger);
         font-weight: 600;
       }
+      .pilot-auth {
+        flex-shrink: 0;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+        display: grid;
+        gap: 6px;
+      }
+      .pilot-auth-title {
+        font-weight: 650;
+        color: var(--navy);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .pilot-field {
+        display: grid;
+        gap: 2px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .pilot-field input,
+      .pilot-field select {
+        font: inherit;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: #111;
+        background: #fff;
+      }
+      .pilot-auth-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 4px;
+      }
+      .pilot-auth-actions button {
+        font: inherit;
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        cursor: pointer;
+      }
+      .pilot-auth-actions button.primary {
+        background: var(--blue);
+        color: #fff;
+        border-color: var(--blue);
+      }
+      .pilot-auth-actions button.secondary {
+        background: #fff;
+        color: var(--navy);
+      }
+      .pilot-auth-status {
+        margin: 0;
+        font-size: 11px;
+        color: var(--muted);
+        min-height: 1.2em;
+      }
+      .pilot-auth-status.error {
+        color: var(--danger);
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
     <div id="app">
+      <div id="pilotAuth" class="pilot-auth" aria-label="Pilot sign-in">
+        <div class="pilot-auth-title">Pilot access</div>
+        <label class="pilot-field">
+          Email
+          <input id="pilotEmail" type="email" autocomplete="username" placeholder="you@firm.com" />
+        </label>
+        <label class="pilot-field">
+          Password
+          <input id="pilotPassword" type="password" autocomplete="current-password" />
+        </label>
+        <label class="pilot-field">
+          LLM API key (BYOK)
+          <input id="pilotLlmKey" type="password" autocomplete="off" placeholder="sk-…" />
+        </label>
+        <label class="pilot-field">
+          Provider
+          <select id="pilotLlmProvider">
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </label>
+        <div class="pilot-auth-actions">
+          <button type="button" id="pilotRegisterBtn" class="secondary">Register</button>
+          <button type="button" id="pilotLoginBtn" class="primary">Sign in</button>
+          <button type="button" id="pilotLogoutBtn" class="secondary">Sign out</button>
+        </div>
+        <p id="pilotAuthStatus" class="pilot-auth-status" aria-live="polite"></p>
+      </div>
       <div id="transcript" role="log" aria-live="polite" aria-relevant="additions"></div>
       <div class="pane-footer">
         <div id="statusBadges" class="badge-row" aria-live="polite"></div>

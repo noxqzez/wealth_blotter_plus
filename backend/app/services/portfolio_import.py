@@ -33,6 +33,8 @@ logger = structlog.get_logger(__name__)
 
 async def validate_import(
     payload: ImportValidationRequest,
+    *,
+    advisor_id: UUID | None = None,
 ) -> ValidateImportResponse:
     """Normalize paste rows, persist draft_folio; messages go to API + audit."""
     trading_rules = await load_active_trading_rules()
@@ -44,7 +46,7 @@ async def validate_import(
 
     draft_id = uuid4()
     client = get_service_supabase()
-    client_id = _upsert_client(client, result.client_alias)
+    client_id = _upsert_client(client, result.client_alias, advisor_id=advisor_id)
     portfolio_id = _upsert_portfolio(client, client_id)
 
     draft_positions = [
@@ -314,13 +316,22 @@ async def build_base(
     )
 
 
-def _upsert_client(client: Any, alias: str) -> UUID:
-    existing = (
-        client.table("clients").select("id").eq("client_alias", alias).limit(1).execute()
-    )
+def _upsert_client(
+    client: Any,
+    alias: str,
+    *,
+    advisor_id: UUID | None = None,
+) -> UUID:
+    q = client.table("clients").select("id").eq("client_alias", alias)
+    if advisor_id is not None:
+        q = q.eq("advisor_id", str(advisor_id))
+    existing = q.limit(1).execute()
     if existing.data:
         return UUID(existing.data[0]["id"])
-    created = client.table("clients").insert({"client_alias": alias}).execute()
+    row: dict[str, Any] = {"client_alias": alias}
+    if advisor_id is not None:
+        row["advisor_id"] = str(advisor_id)
+    created = client.table("clients").insert(row).execute()
     return UUID(created.data[0]["id"])
 
 

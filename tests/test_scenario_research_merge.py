@@ -47,6 +47,9 @@ def test_in_house_wins_on_conflict() -> None:
     assert aapl.final_conviction < 0.7
     assert "prioritized" in (aapl.conflict_resolution or "").lower()
     assert view.source == "full"
+    assert "coin_temperature" not in (view.summary or "").lower()
+    assert "tone=" not in (view.summary or "").lower()
+    assert "risk off tone" in (view.summary or "").lower()
 
 
 def test_mixed_market_falls_back_to_risk_on_tone() -> None:

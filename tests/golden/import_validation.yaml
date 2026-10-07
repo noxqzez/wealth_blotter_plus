@@ -1,0 +1,59 @@
+# Golden cases: portfolio import / normalize / validate-import API
+# Edit expect.* to lock ground truth. Inputs must stay anonymized (aliases only).
+#
+# expect keys (use what applies):
+#   raises: ImportValidationError
+#   error_substring: matched against exception or HTTP detail
+#   http_status: when driving the API (optional; domain errors → 400)
+#   ok: true  → normalize succeeds (no raise)
+
+- id: empty_rows_pydantic
+  description: Empty rows list fails FastAPI / Pydantic validation
+  input:
+    payload: { rows: [] }
+  expect:
+    http_status: 422
+
+- id: missing_rows_field
+  description: Missing rows field fails FastAPI / Pydantic validation
+  input:
+    payload: {}
+  expect:
+    http_status: 422
+
+- id: negative_qty
+  description: Negative quantity rejected by normalizer
+  input:
+    rows:
+      - { client_alias: GOLDEN_NEG, asset_class: EQUITY, ticker: AAPL, quantity: -1.0, currency: USD }
+      - { client_alias: GOLDEN_NEG, asset_class: EQUITY, ticker: MSFT, quantity: 5.0, currency: USD }
+      - { client_alias: GOLDEN_NEG, asset_class: EQUITY, ticker: JPM, quantity: 8.0, currency: USD }
+      - { client_alias: GOLDEN_NEG, asset_class: EQUITY, ticker: NVDA, quantity: 2.0, currency: USD }
+      - { client_alias: GOLDEN_NEG, asset_class: CASH, ticker: USD, quantity: 1000.0, currency: USD }
+  expect:
+    raises: ImportValidationError
+    error_substring: "Negative"
+    http_status: 400
+
+- id: too_few_positions
+  description: Fewer than 5 positions after normalize is rejected
+  input:
+    rows:
+      - { client_alias: GOLDEN_FEW, asset_class: EQUITY, ticker: AAPL, quantity: 10.0, currency: USD }
+      - { client_alias: GOLDEN_FEW, asset_class: EQUITY, ticker: MSFT, quantity: 5.0, currency: USD }
+  expect:
+    raises: ImportValidationError
+    error_substring: "5 and 10"
+
+- id: valid_five_name_book
+  description: Minimal valid 5-row book normalizes without raise
+  input:
+    rows:
+      - { client_alias: GOLDEN_OK, asset_class: EQUITY, ticker: AAPL, quantity: 10.0, currency: USD }
+      - { client_alias: GOLDEN_OK, asset_class: EQUITY, ticker: MSFT, quantity: 5.0, currency: USD }
+      - { client_alias: GOLDEN_OK, asset_class: EQUITY, ticker: JPM, quantity: 8.0, currency: USD }
+      - { client_alias: GOLDEN_OK, asset_class: EQUITY, ticker: NVDA, quantity: 2.0, currency: USD }
+      - { client_alias: GOLDEN_OK, asset_class: CASH, ticker: USD, quantity: 1000.0, currency: USD }
+  expect:
+    ok: true
+    min_positions: 5

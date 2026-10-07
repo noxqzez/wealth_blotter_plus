@@ -1,0 +1,62 @@
+# Golden cases: advisory confidence routing / agent drift
+# No PII — use opaque client_ref only.
+#
+# For mocked unit tests, set mock_confidence (crew return value).
+# For live LLM (WBP_LIVE_LLM=1), omit mock_confidence and use confidence bands.
+#
+# expect keys:
+#   route: blotter | hitl
+#   confidence_min / confidence_max
+#   rationale_not_empty: true
+#   threshold: confidence threshold (default 0.85)
+
+- id: route_threshold_blotter_exact
+  description: score == threshold → blotter
+  input:
+    score: 0.85
+    threshold: 0.85
+  expect:
+    route: blotter
+
+- id: route_threshold_hitl_just_under
+  description: score just under threshold → hitl
+  input:
+    score: 0.8499
+    threshold: 0.85
+  expect:
+    route: hitl
+
+- id: golden_balanced_mock
+  description: Sensible rebalance notes with high mock confidence → blotter
+  input:
+    client_ref: cref-42-balanced
+    notes: "Rebalance toward moderate equity sleeve; keep cash buffer."
+    mock_confidence: 0.91
+    threshold: 0.85
+  expect:
+    route: blotter
+    confidence_min: 0.85
+    http_status: 200
+
+- id: adversarial_nonsense_mock
+  description: Nonsensical notes with low mock confidence → HITL
+  input:
+    client_ref: cref-42-nonsense
+    notes: "asdkfjh!!! buy purple unicorn futures at -999 weight"
+    mock_confidence: 0.42
+    threshold: 0.85
+  expect:
+    route: hitl
+    confidence_max: 0.8499
+    http_status: 200
+
+- id: golden_balanced_live
+  description: Live Ollama/CrewAI band check (requires WBP_LIVE_LLM=1)
+  live_llm: true
+  input:
+    client_ref: cref-42-balanced-live
+    notes: "Rebalance toward moderate equity sleeve; keep cash buffer."
+  expect:
+    confidence_min: 0.0
+    confidence_max: 1.0
+    rationale_not_empty: true

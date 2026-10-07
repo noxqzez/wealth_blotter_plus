@@ -281,6 +281,13 @@ class ScenarioRunResponse(BaseModel):
     metrics_delta: dict[str, float | None] = Field(default_factory=dict)
     staged_trades: list[StagedTrade] = Field(default_factory=list)
     talking_points: list[TalkingPoint] = Field(default_factory=list)
+    performance_series: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Indexed cumulative performance (start=100) for Starting Positions "
+            "vs Optimized Portfolio over lookback_window."
+        ),
+    )
     error_code: str | None = None
     error_message: str | None = None
     messages: list[str] = Field(default_factory=list)

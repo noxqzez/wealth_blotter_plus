@@ -79,7 +79,7 @@ async def portfolios_validate_import(
     """Boundary checks, ticker/Ccy normalization, draft_folio staging."""
     cid = _correlation_id(request)
     try:
-        result = await validate_import(payload)
+        result = await validate_import(payload, advisor_id=user.advisor_id)
     except ImportValidationError as exc:
         raise _http_validation(
             exc, error_code=WBP_IMPORT_VALIDATE, correlation_id=cid

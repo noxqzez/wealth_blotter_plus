@@ -44,7 +44,6 @@ from backend.app.schemas.scenario import (
     ScenarioRunResponse,
     ScenarioUpdateParamsResponse,
     StagedTrade,
-    TalkingPoint,
 )
 from backend.app.services.compliance_cite import load_active_trading_rules
 from backend.app.services.trading_rules_policy import approved_crypto_bases_from_rules
@@ -96,6 +95,17 @@ from backend.app.services.scenario_research import (
     consolidate_strategy_view,
     run_house_research,
     run_market_research,
+)
+from backend.app.services.scenario_talking_points import (
+    build_talking_points,
+    extract_news_footnotes,
+    format_news_footnote_lines,
+)
+from backend.app.services.scenario_performance import (
+    DEFAULT_CHART_LOOKBACK_DAYS,
+    DEFAULT_CHART_LOOKBACK_WINDOW,
+    PerformanceBuildError,
+    build_base_vs_opti_performance,
 )
 
 logger = structlog.get_logger(__name__)
@@ -249,46 +259,6 @@ def _latest_prices_from_bars(bars: Sequence[Any]) -> dict[str, float]:
         if prev is None or price_date >= prev[0]:
             by_ticker[ticker] = (price_date, close)
     return {t: px for t, (_d, px) in by_ticker.items()}
-
-
-def _talking_points_from_delta(delta: Mapping[str, float | None]) -> list[TalkingPoint]:
-    """Phase-1 deterministic bullets when content_agent is not wired."""
-    labels = {
-        "expected_return": "Expected return",
-        "annualized_volatility": "Annualized volatility",
-        "sharpe_ratio": "Sharpe ratio",
-        "sortino_ratio": "Sortino ratio",
-        "max_drawdown": "Max drawdown",
-        "max_runup": "Max run-up",
-        "cvar_95": "CVaR 95%",
-        "scenario_return": "Scenario return",
-    }
-    points: list[TalkingPoint] = []
-    for key, label in labels.items():
-        raw = delta.get(key)
-        if raw is None:
-            continue
-        direction = "improved" if raw > 0 else "declined" if raw < 0 else "unchanged"
-        if key in {"annualized_volatility", "max_drawdown", "cvar_95"}:
-            # Lower is better for risk-ish metrics
-            if raw < 0:
-                direction = "improved (lower)"
-            elif raw > 0:
-                direction = "worsened (higher)"
-        points.append(
-            TalkingPoint(
-                bullet=f"{label} {direction} by {raw:+.4f} vs base folio.",
-                driver=key,
-            )
-        )
-    if not points:
-        points.append(
-            TalkingPoint(
-                bullet="Optimized folio generated; metric deltas were unavailable.",
-                driver=None,
-            )
-        )
-    return points
 
 
 def _build_staged_trades(
@@ -982,8 +952,11 @@ def _execute_phase1_sync(
     lookback = parse_lookback_days(
         scenario_params.scenario.lookback_window
         or scenario_params.market_data_request_params.lookback_window
-        or "5Y"
+        or DEFAULT_CHART_LOOKBACK_WINDOW
     )
+    # Always fetch at least the PDF chart window (5Y) so performance series
+    # stays full-length even if the scenario/optimizer window is shorter.
+    lookback = max(int(lookback), int(DEFAULT_CHART_LOOKBACK_DAYS))
     history = fetch_scenario_history(
         universe, lookback_days=lookback, limits=limits
     )
@@ -1273,38 +1246,114 @@ def _execute_phase1_sync(
         client_alias=client_alias,
     )
 
-    talking = _talking_points_from_delta(delta)
+    talking = build_talking_points(
+        metrics_delta=delta,
+        base_metrics=base_metrics,
+        staged_trades=staged,
+        strategy_view=strategy_view,
+        opti_folio=opti_positions,
+        max_market_bullets=3,
+    )
+    news_footnotes = extract_news_footnotes(
+        list(market_research.get("articles") or []),
+        limit=5,
+    )
+
+    performance_payload: dict[str, Any] | None = None
+    try:
+        price_panel = history.prices_panel
+        if price_panel is None or price_panel.empty:
+            price_panel = history.prices
+        perf = build_base_vs_opti_performance(
+            price_panel,
+            base_weights=base_weights,
+            opti_weights=opti_weights,
+            lookback_window=DEFAULT_CHART_LOOKBACK_WINDOW,
+            target_lookback_days=DEFAULT_CHART_LOOKBACK_DAYS,
+        )
+        performance_payload = perf.model_dump(mode="json")
+        if not perf.validation_ok:
+            messages.append(
+                "Performance series validation warnings: "
+                + "; ".join(perf.validation_messages)
+            )
+        else:
+            messages.append(
+                f"Performance series OK ({perf.point_count_full} points, "
+                f"lookback={perf.lookback_window or 'n/a'})."
+            )
+    except PerformanceBuildError as exc:
+        messages.append(f"Performance series unavailable: {exc}")
+        logger.warning(
+            "scenario_performance_build_failed",
+            scenario_run_id=str(scenario_run_id),
+            error=str(exc),
+        )
+
     write_scenario_step_audit(
         **audit_kw,
         step=STEP_CONTENT,
         agent_or_component="content_agent",
-        implementation="deterministic_delta_bullets",
-        input_payload={"metrics_delta": delta},
-        output_payload={"talking_points": [t.model_dump(mode="json") for t in talking]},
+        implementation="deterministic_perf_and_trade_gated_color",
+        input_payload={
+            "metrics_delta": delta,
+            "staged_trade_tickers": [t.ticker for t in staged],
+            "strategy_view_source": strategy_view.source,
+            "news_footnote_count": len(news_footnotes),
+        },
+        output_payload={
+            "talking_points": [t.model_dump(mode="json") for t in talking],
+            "news_footnotes": news_footnotes,
+            "performance_series": performance_payload,
+        },
     )
+
+    strategy_view_json = strategy_view.model_dump(mode="json")
+    strategy_view_json["notes"] = list(strategy_view.notes) + [
+        f"metrics_delta={json.dumps(delta)}"
+    ]
+    # Persist for PDF footnotes (jsonb; ignored by StrategyView validation).
+    strategy_view_json["news_footnotes"] = news_footnotes
+    if performance_payload is not None:
+        # Backup if performance_series column not yet migrated.
+        strategy_view_json["performance_series"] = performance_payload
 
     artifact: dict[str, Any] = {
         "status": "COMPLETED",
-        "strategy_view": strategy_view.model_dump(mode="json"),
+        "strategy_view": strategy_view_json,
         "risk_metrics_base": base_metrics.model_dump(mode="json"),
         "risk_metrics_opti": opti_metrics.model_dump(mode="json"),
         "opti_folio": [p.model_dump(mode="json") for p in opti_positions],
         "talking_points": [t.model_dump(mode="json") for t in talking],
+        "performance_series": performance_payload,
         "error_code": None,
         "error_message": None,
         "updated_at": _now_iso(),
     }
-    artifact["strategy_view"]["notes"] = list(strategy_view.notes) + [
-        f"metrics_delta={json.dumps(delta)}"
-    ]
 
     try:
         _client().table("scenario_runs").update(artifact).eq(
             "id", str(scenario_run_id)
         ).execute()
     except Exception as exc:  # noqa: BLE001
-        _guard_db(exc)
-        raise
+        # Soft fallback if performance_series column not migrated yet.
+        err = str(exc).lower()
+        if "performance_series" in err and "performance_series" in artifact:
+            artifact.pop("performance_series", None)
+            try:
+                _client().table("scenario_runs").update(artifact).eq(
+                    "id", str(scenario_run_id)
+                ).execute()
+                messages.append(
+                    "performance_series column missing — apply "
+                    "migration_performance_series.sql; chart data kept in-run only."
+                )
+            except Exception as exc2:  # noqa: BLE001
+                _guard_db(exc2)
+                raise
+        else:
+            _guard_db(exc)
+            raise
 
     write_scenario_step_audit(
         **audit_kw,
@@ -1317,6 +1366,7 @@ def _execute_phase1_sync(
             "opti_folio": [p.model_dump(mode="json") for p in opti_positions],
             "staged_trades": [t.model_dump(mode="json") for t in staged],
             "metrics_delta": delta,
+            "performance_series": performance_payload,
         },
         messages=messages,
     )
@@ -1340,6 +1390,7 @@ def _execute_phase1_sync(
         metrics_delta=delta,
         staged_trades=staged,
         talking_points=talking,
+        performance_series=performance_payload,
         messages=messages,
     )
 
@@ -1642,6 +1693,15 @@ async def build_pdf_bytes(
             elif isinstance(item, str):
                 bullets.append(item)
 
+    sv_raw = row.get("strategy_view") or {}
+    news_raw: list[Any] = []
+    perf_raw: Any = row.get("performance_series")
+    if isinstance(sv_raw, dict):
+        news_raw = list(sv_raw.get("news_footnotes") or [])
+        if not perf_raw:
+            perf_raw = sv_raw.get("performance_series")
+    footnote_lines = format_news_footnote_lines(news_raw)
+
     client_alias = _load_client_alias(
         str(row["client_id"]) if row.get("client_id") else None
     )
@@ -1658,6 +1718,8 @@ async def build_pdf_bytes(
             base_metrics=base_metrics_raw if isinstance(base_metrics_raw, dict) else None,
             talking_points=bullets,
             client_alias=client_alias,
+            news_footnotes=footnote_lines,
+            performance_series=perf_raw if isinstance(perf_raw, dict) else None,
         )
     except Exception as exc:  # noqa: BLE001
         raise ScenarioServiceError(

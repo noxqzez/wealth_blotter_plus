@@ -1,0 +1,114 @@
+# Golden cases: agent routing outcomes for scenario research + staged orders
+# Asserts deterministic ground truth (house RAG wins, trade sides/weights).
+# Edit expect.* to lock behavior; keep aliases/tickers anonymized where possible.
+#
+# expect keys:
+#   asset_views.<TICKER>.final_view_in: list of allowed strategist views
+#   asset_views.<TICKER>.tilt_max: qualitative_view_to_tilt must be ≤ this
+#   asset_views.<TICKER>.house_wins_on_conflict: true when market disagrees
+#   crypto_orders.sides_only: e.g. [SELL]
+#   crypto_weights.opti_lte_base: every CRYPTO opti weight ≤ base weight
+#   orders.no_large_buy.ticker / max_weight_increase: forbid large buys
+
+- id: crypto_negative_scenario
+  description: >
+    Negative / risk-off crypto scenario — house bearish on BTC even if street
+    is bullish. Crypto staged orders must be SELL; opti crypto weight ≤ base.
+  input:
+    scenario_tone: risk_off
+    coin_temperature: 2
+    universe_tickers: [AAPL, MSFT, BTC-USD, USD]
+    house_research:
+      hit_count: 1
+      asset_views:
+        - asset: BTC-USD
+          asset_class: crypto
+          view: bearish
+          conviction: 0.8
+          rationale: "In-house: negative equity/crypto scenario — reduce crypto sleeve."
+          source_refs: []
+        - asset: AAPL
+          asset_class: equity
+          view: cautious
+          conviction: 0.55
+          rationale: "Risk-off equity stance."
+          source_refs: []
+    market_research:
+      article_count: 3
+      asset_views:
+        - asset: BTC-USD
+          asset_class: crypto
+          view: bullish
+          conviction: 0.7
+          rationale: "Street headlines remain constructive on crypto."
+          source_refs: []
+    base_folio:
+      - { ticker: AAPL, asset_class: EQUITY, quantity: 50.0, weight_pct: 0.40, notional_value: 40000 }
+      - { ticker: MSFT, asset_class: EQUITY, quantity: 40.0, weight_pct: 0.35, notional_value: 35000 }
+      - { ticker: BTC-USD, asset_class: CRYPTO, quantity: 0.20, weight_pct: 0.15, notional_value: 15000 }
+      - { ticker: USD, asset_class: CASH, quantity: 10000.0, weight_pct: 0.10, notional_value: 10000 }
+    # Ground-truth opti after bearish crypto routing: crypto cut, cash up.
+    opti_folio:
+      - { ticker: AAPL, asset_class: EQUITY, quantity: 50.0, weight_pct: 0.40, notional_value: 40000 }
+      - { ticker: MSFT, asset_class: EQUITY, quantity: 40.0, weight_pct: 0.35, notional_value: 35000 }
+      - { ticker: BTC-USD, asset_class: CRYPTO, quantity: 0.10, weight_pct: 0.08, notional_value: 8000 }
+      - { ticker: USD, asset_class: CASH, quantity: 17000.0, weight_pct: 0.17, notional_value: 17000 }
+  expect:
+    asset_views:
+      BTC-USD:
+        final_view_in: [bearish, very_bearish, strongly_bearish, negative, underweight]
+        tilt_max: 0.0
+        house_wins_on_conflict: true
+    crypto_orders:
+      sides_only: [SELL]
+    crypto_weights:
+      opti_lte_base: true
+
+- id: rag_house_no_msft_buy
+  description: >
+    RAG / in-house view says do NOT buy MSFT. House wins over bullish street.
+    Opti must not create a large MSFT buy (weight increase ≤ 1pp).
+  input:
+    scenario_tone: neutral
+    coin_temperature: 2
+    universe_tickers: [AAPL, MSFT, BTC-USD, USD]
+    house_research:
+      hit_count: 1
+      asset_views:
+        - asset: MSFT
+          asset_class: equity
+          view: underweight
+          conviction: 0.85
+          rationale: "In-house view: do NOT buy MSFT stock."
+          source_refs: [house_rag_msft_memo]
+    market_research:
+      article_count: 4
+      asset_views:
+        - asset: MSFT
+          asset_class: equity
+          view: bullish
+          conviction: 0.75
+          rationale: "Street upgrade cycle on MSFT."
+          source_refs: []
+    base_folio:
+      - { ticker: AAPL, asset_class: EQUITY, quantity: 40.0, weight_pct: 0.30, notional_value: 30000 }
+      - { ticker: MSFT, asset_class: EQUITY, quantity: 50.0, weight_pct: 0.40, notional_value: 40000 }
+      - { ticker: BTC-USD, asset_class: CRYPTO, quantity: 0.05, weight_pct: 0.10, notional_value: 10000 }
+      - { ticker: USD, asset_class: CASH, quantity: 20000.0, weight_pct: 0.20, notional_value: 20000 }
+    # Ground-truth opti: trim MSFT (no buy); redeploy to cash / AAPL.
+    opti_folio:
+      - { ticker: AAPL, asset_class: EQUITY, quantity: 45.0, weight_pct: 0.35, notional_value: 35000 }
+      - { ticker: MSFT, asset_class: EQUITY, quantity: 40.0, weight_pct: 0.32, notional_value: 32000 }
+      - { ticker: BTC-USD, asset_class: CRYPTO, quantity: 0.05, weight_pct: 0.10, notional_value: 10000 }
+      - { ticker: USD, asset_class: CASH, quantity: 23000.0, weight_pct: 0.23, notional_value: 23000 }
+  expect:
+    asset_views:
+      MSFT:
+        final_view_in: [underweight, bearish, very_bearish, negative, cautious]
+        tilt_max: 0.0
+        house_wins_on_conflict: true
+        rationale_contains: "do NOT buy MSFT"
+    orders:
+      no_large_buy:
+        ticker: MSFT
+        max_weight_increase: 0.01

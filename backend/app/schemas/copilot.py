@@ -29,6 +29,22 @@ class WorkflowState(str, Enum):
     ORDERS_PLACED = "ORDERS_PLACED"
 
 
+# User-facing status chip labels (Excel task pane).
+WORKFLOW_STATUS_LABELS: dict[WorkflowState, str] = {
+    WorkflowState.INIT: "Import securities",
+    WorkflowState.BLOTTER_HAS_ERRORS: "Fix import errors",
+    WorkflowState.BLOTTER_VALIDATED: "Blotter validated",
+    WorkflowState.PORTFOLIO_ENRICHED: "Enter scenario",
+    WorkflowState.SCENARIO_PARSED: "Review scenario",
+    WorkflowState.OPTIMIZATION_COMPLETE: "Optimization complete",
+    WorkflowState.ORDERS_PLACED: "Orders placed",
+}
+
+
+def workflow_status_label(state: WorkflowState) -> str:
+    return WORKFLOW_STATUS_LABELS.get(state, state.value)
+
+
 class ActionVariant(str, Enum):
     PRIMARY = "primary"
     SECONDARY = "secondary"
@@ -42,6 +58,10 @@ class IntentClass(str, Enum):
     PROMPT_INJECTION = "PROMPT_INJECTION"
     SCENARIO_PROMPT = "SCENARIO_PROMPT"
     PARAM_EDIT = "PARAM_EDIT"
+    # Domain IDs: chat may recall/audit (read-only) but never set/write them.
+    ID_RECALL = "ID_RECALL"
+    ID_WRITE_ATTEMPT = "ID_WRITE_ATTEMPT"
+    OPS_QUERY = "OPS_QUERY"
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +150,8 @@ class CopilotAgentResponse(BaseModel):
     message_id: str
     session_id: str
     current_state: WorkflowState
+    # Friendly chip for the Excel pane (e.g. INIT → "Import securities").
+    status_label: str = ""
     content: str
     guardrails: list[GuardrailCheck] = Field(default_factory=list)
     actions: list[ActionTrigger] = Field(default_factory=list)
@@ -138,6 +160,8 @@ class CopilotAgentResponse(BaseModel):
     download: DownloadArtifact | None = None
     accept_user_text: bool = False
     user_text_placeholder: str | None = None
+    # When true, Excel renders a compact ★★★★★ control (posts rate_stars_N).
+    show_star_rating: bool = False
     # Optional structured context for the pane (not Excel-written).
     scenario_params_summary: dict[str, Any] | None = None
     portfolio_id: UUID | None = None
@@ -178,3 +202,13 @@ class CopilotSessionState(BaseModel):
     pending_action_ids: list[str] = Field(default_factory=list)
     # Set when advisor uses Reprocess / Drop Invalid before a clean validate.
     import_hitl: bool = False
+    # Optional post-opti star rating: one per scenario_run (dismissed or saved).
+    rating_captured: bool = False
+    rating_for_run_id: UUID | None = None
+    # Last ops-query result so “load it” can apply Excel without re-asking.
+    last_ops_kind: str | None = None
+    last_ops_portfolio_id: UUID | None = None
+    last_ops_scenario_run_id: UUID | None = None
+    last_ops_client_alias: str | None = None
+    last_ops_load_target: str | None = None  # scratchpad | rebalanced | pdf
+

@@ -3,6 +3,7 @@
  */
 
 import DOMPurify from "dompurify";
+import { authHeaders, wirePilotAuthPanel } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -76,6 +77,7 @@ export type CopilotAgentResponse = {
   message_id: string;
   session_id: string;
   current_state: string;
+  status_label?: string;
   content: string;
   guardrails?: GuardrailCheck[];
   actions?: ActionTrigger[];
@@ -84,7 +86,27 @@ export type CopilotAgentResponse = {
   download?: DownloadArtifact | null;
   accept_user_text?: boolean;
   user_text_placeholder?: string | null;
+  show_star_rating?: boolean;
 };
+
+/** Fallback labels if an older API omits status_label. */
+const WORKFLOW_STATUS_LABELS: Record<string, string> = {
+  INIT: "Import securities",
+  BLOTTER_HAS_ERRORS: "Fix import errors",
+  BLOTTER_VALIDATED: "Blotter validated",
+  PORTFOLIO_ENRICHED: "Enter scenario",
+  SCENARIO_PARSED: "Review scenario",
+  OPTIMIZATION_COMPLETE: "Optimization complete",
+  ORDERS_PLACED: "Orders placed",
+};
+
+function friendlyStatusLabel(resp: CopilotAgentResponse): string {
+  if (resp.status_label && resp.status_label.trim()) {
+    return resp.status_label.trim();
+  }
+  const key = (resp.current_state || "").trim();
+  return WORKFLOW_STATUS_LABELS[key] || key;
+}
 
 type PasteRow = {
   client_alias: string;
@@ -128,6 +150,7 @@ const els = {
 let sessionId: string | null = null;
 let busy = false;
 let lastActions: ActionTrigger[] = [];
+let showStarRating = false;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -166,16 +189,6 @@ function shortRef(correlationId: string): string {
 
 function supportMessage(errorCode: string, correlationId: string): string {
   return `${SUPPORT_MESSAGE}\nRef: ${errorCode} · ${shortRef(correlationId)}`;
-}
-
-function authHeaders(correlationId: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Request-ID": correlationId,
-  };
-  const token = localStorage.getItem("sb_access_token");
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return headers;
 }
 
 function isAbortError(err: unknown): boolean {
@@ -355,20 +368,74 @@ function setBusy(next: boolean, inFlightLabel = "Working…"): void {
   }
 }
 
+function renderStarRatingWidget(): void {
+  if (!els.actions || !showStarRating) return;
+  const wrap = document.createElement("div");
+  wrap.className = "star-rating";
+  wrap.setAttribute("role", "group");
+  wrap.setAttribute("aria-label", "Rate this simulation 1 to 5 stars");
+  const stars: HTMLButtonElement[] = [];
+
+  const paint = (hot: number) => {
+    stars.forEach((btn, i) => {
+      const n = i + 1;
+      btn.classList.toggle("is-hot", n <= hot);
+      btn.classList.toggle("is-filled", n <= hot);
+      btn.textContent = n <= hot ? "★" : "☆";
+    });
+  };
+
+  for (let n = 1; n <= 5; n += 1) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "star";
+    btn.textContent = "☆";
+    btn.disabled = busy;
+    btn.dataset.stars = String(n);
+    btn.title = `${n} star${n === 1 ? "" : "s"}`;
+    btn.setAttribute("aria-label", `Rate ${n} out of 5`);
+    btn.addEventListener("mouseenter", () => paint(n));
+    btn.addEventListener("focus", () => paint(n));
+    btn.addEventListener("mouseleave", () => paint(0));
+    btn.addEventListener("blur", () => paint(0));
+    btn.addEventListener("click", () => {
+      void handleAction({
+        id: `rate_stars_${n}`,
+        label: `${n}`,
+        variant: "secondary",
+      });
+    });
+    stars.push(btn);
+    wrap.appendChild(btn);
+  }
+  els.actions.appendChild(wrap);
+}
+
 function renderActions(actions: ActionTrigger[]): void {
   lastActions = actions;
   if (!els.actions) return;
   els.actions.replaceChildren();
+  if (showStarRating) {
+    renderStarRatingWidget();
+  }
   for (const action of actions) {
+    // Star scores are handled by the compact widget, not separate buttons.
+    if (action.id.startsWith("rate_stars_")) continue;
     const btn = document.createElement("button");
     btn.type = "button";
     const variant = action.variant ?? "primary";
+    const classes: string[] = [];
     if (variant === "secondary" || variant === "danger") {
-      btn.className = variant;
+      classes.push(variant);
     }
+    if (action.id === "skip_rating") {
+      classes.push("rating");
+    }
+    if (classes.length) btn.className = classes.join(" ");
     btn.textContent = sanitize(action.label);
     btn.disabled = busy;
     btn.dataset.actionId = action.id;
+    btn.title = sanitize(action.label);
     btn.addEventListener("click", () => {
       void handleAction(action);
     });
@@ -378,12 +445,13 @@ function renderActions(actions: ActionTrigger[]): void {
 
 function applyResponseUi(resp: CopilotAgentResponse, opts?: { skipBubble?: boolean }): void {
   sessionId = resp.session_id;
+  showStarRating = Boolean(resp.show_star_rating);
   if (!opts?.skipBubble && resp.content) {
     appendBubble("assistant", resp.content);
   }
   renderGuardrails(resp.guardrails ?? []);
-  // Prefer FSM current_state as the single status chip.
-  const stateLabel = resp.current_state || (resp.execution_status_badges ?? []).slice(-1)[0];
+  // Prefer friendly status_label (e.g. Import securities) over raw FSM enum.
+  const stateLabel = friendlyStatusLabel(resp);
   renderBadges(stateLabel ? [stateLabel] : [], false);
   renderActions(resp.actions ?? []);
   setComposer(Boolean(resp.accept_user_text), resp.user_text_placeholder);
@@ -410,7 +478,9 @@ async function readSelectedPasteRows(): Promise<PasteSelection> {
 
     const values = range.values as unknown[][];
     if (!values || values.length < 2) {
-      throw new Error("Select a table with a header row and at least one data row.");
+      throw new Error(
+        "Select a table with a header row. Need to provide: client_alias, ticker, asset_class, currency and quantity for me to intake.",
+      );
     }
 
     const headers = values[0].map(normalizeHeader);
@@ -428,10 +498,11 @@ async function readSelectedPasteRows(): Promise<PasteSelection> {
       idx.client_alias < 0 ||
       idx.ticker < 0 ||
       idx.quantity < 0 ||
-      idx.asset_class < 0
+      idx.asset_class < 0 ||
+      idx.currency < 0
     ) {
       throw new Error(
-        "Header must include: client_alias | ticker | quantity | asset_class | currency (optional)",
+        "Select a table with a header row. Need to provide: client_alias, ticker, asset_class, currency and quantity for me to intake.",
       );
     }
 
@@ -746,8 +817,16 @@ async function handleAction(action: ActionTrigger): Promise<void> {
   if (busy || !sessionId) return;
   const correlationId = newCorrelationId();
   const timeoutMs = timeoutForAction(action.id);
-  setBusy(true, "Working…");
-  setStatus(`Running: ${action.label}…`);
+  const busyLabel =
+    action.id === "confirm_scenario_params" || action.id === "run_optimization"
+      ? "Optimizing…"
+      : "Working…";
+  setBusy(true, busyLabel);
+  setStatus(
+    action.id === "confirm_scenario_params"
+      ? "Confirming & running optimization…"
+      : `Running: ${action.label}…`,
+  );
 
   try {
     let rows: PasteRow[] | undefined;
@@ -879,6 +958,7 @@ async function sendMessage(): Promise<void> {
 
 export function initCopilot(): void {
   clearLegacyScenarioKeys();
+  wirePilotAuthPanel();
 
   els.sendBtn?.addEventListener("click", () => {
     void sendMessage();

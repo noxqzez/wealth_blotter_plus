@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS scenario_runs (
     risk_metrics_opti       JSONB,
     opti_folio              JSONB NOT NULL DEFAULT '[]'::jsonb,
     talking_points          JSONB,
+    performance_series      JSONB,
     feature_flags           JSONB NOT NULL DEFAULT '{}'::jsonb,
     error_code              TEXT,
     error_message           TEXT,

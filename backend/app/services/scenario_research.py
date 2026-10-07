@@ -92,6 +92,18 @@ def _tone_default_view(tone: str, *, is_crypto: bool) -> str:
     return "neutral"
 
 
+def client_tone_phrase(tone: str) -> str:
+    """Client-facing tone wording (never ``tone=risk_off`` style)."""
+    t = (tone or "neutral").strip().lower().replace("-", "_").replace(" ", "_")
+    return {
+        "risk_off": "risk off tone",
+        "riskoff": "risk off tone",
+        "risk_on": "risk on tone",
+        "riskon": "risk on tone",
+        "neutral": "neutral tone",
+    }.get(t, "neutral tone")
+
+
 def _normalize_ticker(raw: str) -> str:
     t = str(raw or "").strip().upper()
     if t in _CASH:
@@ -466,7 +478,7 @@ def consolidate_strategy_view(
                     internal_view=None,
                     external_view=None,
                     conflict_resolution="No research hits; scenario-tone default.",
-                    rationale=f"Default {tone_default} from scenario tone={tone}.",
+                    rationale=f"Default {tone_default} from scenario {client_tone_phrase(tone)}.",
                 )
             )
 
@@ -474,8 +486,8 @@ def consolidate_strategy_view(
         source="full",
         asset_views=merged,
         summary=(
-            "Consolidated strategy_view: in-house RAG prioritized over public news "
-            f"(tone={tone}, coin_temperature={dial}/5)."
+            "Consolidated strategy view prioritizing in-house research over "
+            f"public news ({client_tone_phrase(tone)})."
         ),
         coin_temperature=dial,  # type: ignore[arg-type]
         notes=[

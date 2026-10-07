@@ -7,8 +7,8 @@ from uuid import uuid4
 from backend.app.services.scenario_run import (
     _build_staged_trades,
     _normalize_ticker,
-    _talking_points_from_delta,
 )
+from backend.app.services.scenario_talking_points import _talking_points_from_delta
 
 
 def test_normalize_crypto_ticker() -> None:
@@ -21,10 +21,13 @@ def test_talking_points_from_delta() -> None:
     points = _talking_points_from_delta(
         {"expected_return": 0.02, "annualized_volatility": -0.01, "sharpe_ratio": None}
     )
-    drivers = {p.driver for p in points}
-    assert "expected_return" in drivers
-    assert "annualized_volatility" in drivers
-    assert "sharpe_ratio" not in drivers
+    assert len(points) == 1
+    assert points[0].driver == "performance_summary"
+    bullet = points[0].bullet.lower()
+    assert "expected return" in bullet
+    assert "annualized volatility" in bullet
+    assert "sharpe" not in bullet
+    assert "worsened" not in bullet
 
 
 def test_staged_trades_buy_sell() -> None:

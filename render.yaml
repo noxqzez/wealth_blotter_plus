@@ -1,0 +1,42 @@
+# Render Blueprint — env *names* only. Set real values in the Render dashboard.
+# Never commit secrets. Do not put pilot LLM keys here.
+#
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: wealth-blotter-plus-api
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DEV_AUTH_BYPASS
+        value: "false"
+      - key: REQUIRE_BYOK
+        value: "true"
+      - key: REQUIRE_PILOT_APPROVAL
+        value: "true"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_AUDIENCE
+        value: authenticated
+      - key: LLM_PROVIDER
+        value: openai
+      - key: USE_CLOUD_LLM
+        value: "false"
+      - key: CONFIDENCE_THRESHOLD
+        value: "0.85"

@@ -76,6 +76,14 @@ uv sync --extra rag
 
 See [backend/app/db/RAG_POC.md](backend/app/db/RAG_POC.md).
 
+## Pilot users
+
+**Share this signup link after deploy:** `https://<your-service>.onrender.com/request-access`
+
+Closed pilot onboarding (request access → approval → Excel → BYOK): **[PILOT.md](PILOT.md)**.
+
+Host/operator Render + Supabase checklist: [docs/PILOT_PHASE1.md](docs/PILOT_PHASE1.md).
+
 ## Agent & security docs
 
 Start with [AGENTS.md](AGENTS.md) and [`.cursorrules`](.cursorrules). Put secrets only in `.env` (gitignored).

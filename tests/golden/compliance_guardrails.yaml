@@ -1,0 +1,98 @@
+# Golden cases: deterministic trading_rules / compliance guardrails
+# Weights are fractions (0–1). Default max single-name = 25% (seed.sql).
+#
+# expect keys:
+#   passed: bool
+#   violation_contains: substring matched against any violation
+#   confidence_min / confidence_max: bands on ComplianceCheckOutput.confidence_score
+#   max_single_from_rules: expected folded max_single_name_weight
+
+- id: rule_fold_max_single_25
+  description: Active PORTFOLIO max_single_name_weight folds to 0.25
+  input:
+    trading_rules:
+      - rule_name: max_single_name_weight
+        rule_category: PORTFOLIO
+        max_value: 0.25
+        parameters: { max_single_weight: 0.25, unit: weight_pct }
+        is_active: true
+  expect:
+    max_single_from_rules: 0.25
+
+- id: balanced_under_cap
+  description: All equity names ≤ 25% → compliance passed
+  input:
+    trading_rules:
+      - rule_name: max_single_name_weight
+        rule_category: PORTFOLIO
+        max_value: 0.25
+        parameters: { max_single_weight: 0.25, unit: weight_pct }
+        is_active: true
+      - rule_name: min_cash_buffer
+        rule_category: PORTFOLIO
+        min_value: 0.02
+        parameters: { min_cash_weight: 0.02 }
+        is_active: true
+    single_name_weights:
+      AAPL: 0.18
+      MSFT: 0.17
+      JPM: 0.15
+      NVDA: 0.20
+    current_cash_pct: 0.20
+    current_crypto_pct: 0.10
+    orders: []
+  expect:
+    passed: true
+    confidence_min: 0.85
+
+- id: aapl_over_25pct
+  description: AAPL 45% breaches max_single_name_weight (25%)
+  input:
+    trading_rules:
+      - rule_name: max_single_name_weight
+        rule_category: PORTFOLIO
+        max_value: 0.25
+        parameters: { max_single_weight: 0.25, unit: weight_pct }
+        is_active: true
+      - rule_name: min_cash_buffer
+        rule_category: PORTFOLIO
+        min_value: 0.02
+        parameters: { min_cash_weight: 0.02 }
+        is_active: true
+    single_name_weights:
+      AAPL: 0.45
+      MSFT: 0.20
+      JPM: 0.12
+    current_cash_pct: 0.08
+    current_crypto_pct: 0.03
+    orders:
+      - { symbol: AAPL, side: buy, quantity: 1.0, asset_class: equity_us }
+  expect:
+    passed: false
+    violation_contains: max_single_name_weight
+    confidence_min: 0.85
+
+- id: cash_below_floor
+  description: Cash under min_cash_buffer triggers violation
+  input:
+    trading_rules:
+      - rule_name: max_single_name_weight
+        rule_category: PORTFOLIO
+        max_value: 0.25
+        parameters: { max_single_weight: 0.25, unit: weight_pct }
+        is_active: true
+      - rule_name: min_cash_buffer
+        rule_category: PORTFOLIO
+        min_value: 0.02
+        parameters: { min_cash_weight: 0.05 }
+        is_active: true
+    single_name_weights:
+      AAPL: 0.20
+      MSFT: 0.20
+    current_cash_pct: 0.01
+    current_crypto_pct: 0.0
+    orders: []
+  expect:
+    passed: false
+    violation_contains: min_cash_buffer
+    confidence_min: 0.85

@@ -34,6 +34,7 @@ from backend.app.schemas.copilot import (
     GuardrailCheck,
     IntentClass,
     WorkflowState,
+    workflow_status_label,
 )
 from backend.app.schemas.portfolio_import import (
     BuildBaseRequest,
@@ -50,9 +51,22 @@ from backend.app.schemas.scenario import (
 )
 from backend.app.services import copilot_session as sessions
 from backend.app.services.copilot_guardrails import (
+    classify_identifier_intent,
     classify_intent,
+    extract_id_references,
+    id_write_guardrail,
     redirect_for_intent,
     validate_layer1,
+)
+from backend.app.services.copilot_id_recall import format_id_recall
+from backend.app.services.copilot_ops_queries import (
+    execute_ops_query,
+    parse_ops_query,
+)
+from backend.app.services.interaction_ratings import (
+    InteractionRatingError,
+    has_rating_for_run,
+    save_interaction_rating,
 )
 from backend.app.services.portfolio_import import (
     build_base,
@@ -83,6 +97,13 @@ ACTION_CONFIRM = "confirm_scenario_params"
 ACTION_RUN = "run_optimization"
 ACTION_PDF = "download_pdf"
 ACTION_PLACE = "place_all_orders"
+ACTION_SKIP_RATING = "skip_rating"
+ACTION_NEW_SCENARIO = "run_new_scenario"
+ACTION_UPDATE_HOLDINGS = "update_holdings"
+ACTION_RATE_PREFIX = "rate_stars_"
+_RATE_ACTION_IDS: tuple[str, ...] = tuple(
+    f"{ACTION_RATE_PREFIX}{n}" for n in range(1, 6)
+)
 
 _BLOCKED_PARAM_KEYS = frozenset(
     {
@@ -93,12 +114,35 @@ _BLOCKED_PARAM_KEYS = frozenset(
         "source_agent",
         "message_type",
         "workflow_id",
+        # Domain identifiers are session/server-owned — chat is read-only.
+        "portfolio_id",
+        "scenario_run_id",
+        "scenario_id",
+        "order_id",
+        "position_id",
+        "pos_id",
+        "draft_id",
     }
 )
 
 _TICKER_IN_ERROR_RE = re.compile(
     r"(?:Unsupported crypto|Invalid equity ticker|Incorrect asset class for|"
     r"Unsupported currency)\s+'?([A-Za-z0-9.\-]+)'?",
+    re.IGNORECASE,
+)
+
+# Text restart → Update holdings (button equivalent). Kept distinct from
+# ops "update prices" (which requires an explicit prices cue).
+_HOLDINGS_RESTART_RE = re.compile(
+    r"\b("
+    r"update\s+holdings|"
+    r"change\s+(the\s+)?(weights?|holdings|securities)|"
+    r"add\s+(a\s+)?(security|securities|ticker|position)|"
+    r"re-?import(\s+securities)?|"
+    r"enrich(\s+the)?\s+portfolio(\s+selected)?|"
+    r"process\s+(the\s+)?(selected\s+)?(securities|security\s+list)|"
+    r"restart\s+(with\s+)?(new\s+)?holdings"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -170,7 +214,7 @@ def _action_enrich() -> ActionTrigger:
 def _action_confirm() -> ActionTrigger:
     return ActionTrigger(
         id=ACTION_CONFIRM,
-        label="Confirm Scenario Params",
+        label="Confirm & Run Optimization",
         variant=ActionVariant.PRIMARY,
     )
 
@@ -199,6 +243,125 @@ def _action_place() -> ActionTrigger:
     )
 
 
+def _action_new_scenario() -> ActionTrigger:
+    return ActionTrigger(
+        id=ACTION_NEW_SCENARIO,
+        label="Run new scenario",
+        variant=ActionVariant.SECONDARY,
+    )
+
+
+def _action_update_holdings() -> ActionTrigger:
+    return ActionTrigger(
+        id=ACTION_UPDATE_HOLDINGS,
+        label="Update holdings",
+        variant=ActionVariant.SECONDARY,
+        requires_excel_selection=False,
+    )
+
+
+def _action_rate(stars: int) -> ActionTrigger:
+    """Server-side action id only — UI uses the compact star widget."""
+    return ActionTrigger(
+        id=f"{ACTION_RATE_PREFIX}{stars}",
+        label=f"{stars}",
+        variant=ActionVariant.SECONDARY,
+    )
+
+
+def _action_skip_rating() -> ActionTrigger:
+    return ActionTrigger(
+        id=ACTION_SKIP_RATING,
+        label="Skip rating",
+        variant=ActionVariant.SECONDARY,
+    )
+
+
+def _rating_pending(state: CopilotSessionState) -> bool:
+    """True when we should still offer the optional post-opti star prompt."""
+    if state.current_state != WorkflowState.OPTIMIZATION_COMPLETE:
+        return False
+    if state.scenario_run_id is None:
+        return False
+    return not (
+        state.rating_captured and state.rating_for_run_id == state.scenario_run_id
+    )
+
+
+def _sync_rating_state(state: CopilotSessionState) -> None:
+    """Align session rating flags with DB (one rating per simulation)."""
+    run_id = state.scenario_run_id
+    if run_id is None:
+        return
+    if state.rating_for_run_id != run_id:
+        state.rating_for_run_id = run_id
+        state.rating_captured = False
+    if state.rating_captured:
+        return
+    if has_rating_for_run(scenario_run_id=run_id):
+        state.rating_captured = True
+
+
+def _post_opti_action_ids(state: CopilotSessionState) -> list[str]:
+    ids: list[str] = []
+    if _rating_pending(state):
+        ids.extend(_RATE_ACTION_IDS)
+        ids.append(ACTION_SKIP_RATING)
+    ids.extend(
+        [
+            ACTION_PLACE,
+            ACTION_PDF,
+            ACTION_NEW_SCENARIO,
+            ACTION_UPDATE_HOLDINGS,
+        ]
+    )
+    return ids
+
+
+def _post_opti_actions(state: CopilotSessionState) -> list[ActionTrigger]:
+    """Visible chat buttons (stars rendered separately via show_star_rating)."""
+    actions: list[ActionTrigger] = []
+    if _rating_pending(state):
+        actions.append(_action_skip_rating())
+    actions.extend(
+        [
+            _action_place(),
+            _action_pdf(),
+            _action_new_scenario(),
+            _action_update_holdings(),
+        ]
+    )
+    return actions
+
+
+def _orders_placed_action_ids() -> list[str]:
+    return [ACTION_PDF, ACTION_NEW_SCENARIO, ACTION_UPDATE_HOLDINGS]
+
+
+def _orders_placed_actions() -> list[ActionTrigger]:
+    return [
+        _action_pdf(),
+        _action_new_scenario(),
+        _action_update_holdings(),
+    ]
+
+
+def _review_scenario_actions() -> list[ActionTrigger]:
+    return [_action_confirm(), _action_update_holdings()]
+
+
+def _review_scenario_action_ids() -> list[str]:
+    return [ACTION_CONFIRM, ACTION_UPDATE_HOLDINGS]
+
+
+def _rating_prompt_markdown() -> str:
+    return (
+        "\n\n---\n"
+        "**How was this simulation?** Tap the stars below (optional — one "
+        "rating per run), or **Skip rating**."
+    )
+
+
 def _actions_for_ids(ids: list[str]) -> list[ActionTrigger]:
     catalog: dict[str, ActionTrigger] = {
         ACTION_PROCESS: _action_process(),
@@ -209,7 +372,12 @@ def _actions_for_ids(ids: list[str]) -> list[ActionTrigger]:
         ACTION_RUN: _action_run(),
         ACTION_PDF: _action_pdf(),
         ACTION_PLACE: _action_place(),
+        ACTION_SKIP_RATING: _action_skip_rating(),
+        ACTION_NEW_SCENARIO: _action_new_scenario(),
+        ACTION_UPDATE_HOLDINGS: _action_update_holdings(),
     }
+    for n in range(1, 6):
+        catalog[f"{ACTION_RATE_PREFIX}{n}"] = _action_rate(n)
     return [catalog[i] for i in ids if i in catalog]
 
 
@@ -225,12 +393,23 @@ def _response(
     accept_user_text: bool = False,
     placeholder: str | None = None,
     scenario_params_summary: dict[str, Any] | None = None,
+    show_star_rating: bool | None = None,
 ) -> CopilotAgentResponse:
     action_list = actions if actions is not None else _actions_for_ids(state.pending_action_ids)
+    # Never render individual rate_stars_* buttons — compact widget instead.
+    action_list = [
+        a for a in action_list if not a.id.startswith(ACTION_RATE_PREFIX)
+    ]
+    rating_ui = (
+        bool(show_star_rating)
+        if show_star_rating is not None
+        else _rating_pending(state)
+    )
     return CopilotAgentResponse(
         message_id=sessions.new_message_id(),
         session_id=state.session_id,
         current_state=state.current_state,
+        status_label=workflow_status_label(state.current_state),
         content=content,
         guardrails=guardrails or [],
         actions=action_list,
@@ -239,6 +418,7 @@ def _response(
         download=download,
         accept_user_text=accept_user_text,
         user_text_placeholder=placeholder,
+        show_star_rating=rating_ui,
         scenario_params_summary=scenario_params_summary,
         portfolio_id=state.portfolio_id,
         scenario_run_id=state.scenario_run_id,
@@ -336,7 +516,6 @@ def build_rebalanced_write(
     scenario_run_id: UUID,
 ) -> ExcelWriteSpec:
     positions = body.opti_folio or []
-    points = body.talking_points or []
     metric_keys = [
         "expected_return",
         "annualized_volatility",
@@ -385,10 +564,7 @@ def build_rebalanced_write(
                 _pct(p.weight_pct),
             ]
         )
-    rows.append([])
-    rows.append(["talking_points"])
-    for tp in points:
-        rows.append([tp.bullet])
+    # Market commentary / talking points are PDF-only (simple + Gamma).
 
     width = max((len(r) for r in rows), default=1)
     padded = [r + [""] * (width - len(r)) for r in rows]
@@ -504,7 +680,8 @@ def format_scenario_params_markdown(params: ScenarioParams) -> str:
         f"- **Macro factors:** {factors}",
         "",
         "Review the parameters above. You can type edits "
-        "(e.g. “lookback 3Y”, “risk aversion 4”) or confirm to continue.",
+        "(e.g. “lookback 3Y”, “risk aversion 4”) or confirm to "
+        "run optimization.",
     ]
     return "\n".join(lines)
 
@@ -552,6 +729,47 @@ def _apply_param_dict_patch(
     return ScenarioParams.model_validate(data)
 
 
+def _normalize_tone_token(raw: str) -> ToneLiteral | None:
+    token = re.sub(r"[\s\-]+", "_", (raw or "").strip().lower())
+    if token in {"risk_off", "riskoff", "off"}:
+        return "risk_off"
+    if token in {"risk_on", "riskon", "on"}:
+        return "risk_on"
+    if token == "neutral":
+        return "neutral"
+    return None
+
+
+def _parse_tone_edit(lower: str) -> ToneLiteral | None:
+    """Parse tone edits including 'change risk_off to risk_on' (no 'tone' required)."""
+    # "change risk_off to risk_on" / "from risk off → risk on"
+    m = re.search(
+        r"(?:tone\s+)?(?:from\s+)?"
+        r"(?:risk[_\s-]?off|risk[_\s-]?on|neutral)\s+"
+        r"(?:to|->|→)\s*"
+        r"(risk[_\s-]?off|risk[_\s-]?on|neutral)",
+        lower,
+    )
+    if m:
+        return _normalize_tone_token(m.group(1))
+    # "tone risk_on" / "tone to risk on" / "set tone = risk_on"
+    m = re.search(
+        r"\btone\s*(?:to\s*|=\s*|:\s*)?(risk[_\s-]?off|risk[_\s-]?on|neutral)",
+        lower,
+    )
+    if m:
+        return _normalize_tone_token(m.group(1))
+    # "make it risk_on" / "set risk on" / "use risk_on"
+    m = re.search(
+        r"\b(?:set|make(?:\s+it)?|use|switch(?:\s+to)?)\s+"
+        r"(?:tone\s+(?:to\s+)?)?(risk[_\s-]?off|risk[_\s-]?on|neutral)\b",
+        lower,
+    )
+    if m:
+        return _normalize_tone_token(m.group(1))
+    return None
+
+
 def try_deterministic_param_patch(
     text: str,
     params: ScenarioParams,
@@ -595,20 +813,10 @@ def try_deterministic_param_patch(
     if "severity medium" in lower or "medium severity" in lower:
         scenario_patch["severity"] = "medium"
 
-    # tone
-    tone_map: dict[str, ToneLiteral] = {
-        "risk off": "risk_off",
-        "risk_off": "risk_off",
-        "risk on": "risk_on",
-        "risk_on": "risk_on",
-        "neutral": "neutral",
-    }
-    for phrase, tone in tone_map.items():
-        if re.search(rf"tone\s*(?:to\s*|=\s*)?{re.escape(phrase)}", lower) or (
-            f"tone {phrase}" in lower
-        ):
-            scenario_patch["tone"] = tone
-            break
+    # tone — prefer explicit "X to Y" target so "change risk_off to risk_on" works
+    parsed_tone = _parse_tone_edit(lower)
+    if parsed_tone is not None:
+        scenario_patch["tone"] = parsed_tone
 
     # risk aversion
     ram = re.search(
@@ -665,7 +873,8 @@ async def try_llm_param_patch(
         "weight_overrides (object of ticker→fraction 0-1), "
         "research_context_tags (string[]), detected_factors.macro_factors.\n"
         "Do NOT change coin_temperature, trading rules, optimizer internals, "
-        "or downstream_instructions.\n"
+        "downstream_instructions, portfolio_id, scenario_run_id, scenario_id, "
+        "order_id, position_id, pos_id, draft_id, or workflow_id.\n"
         'Shape: {"patch": { ...fields... }}\n\n'
         f"Current params:\n{json.dumps(summary)}\n\n"
         f"Advisor edit request:\n{text}"
@@ -699,11 +908,14 @@ def build_welcome_response(state: CopilotSessionState) -> CopilotAgentResponse:
         content=(
             "Welcome to Wealth Blotter Copilot.\n\n"
             "Select your securities list in Excel, then click "
-            "**Process Security List** to validate the blotter."
+            "**Process Security List** to validate the blotter.\n\n"
+            "You can also ask read-only lookups anytime "
+            "(e.g. latest portfolio, PDF, trades)."
         ),
         actions=[_action_process()],
-        badges=["INIT"],
-        accept_user_text=False,
+        badges=["Import securities"],
+        accept_user_text=True,
+        placeholder="Ask a lookup, or process your securities list…",
     )
 
 
@@ -754,7 +966,7 @@ async def _validate_rows(
 ) -> CopilotAgentResponse:
     payload = ImportValidationRequest(rows=rows)
     try:
-        result = await validate_import(payload)
+        result = await validate_import(payload, advisor_id=state.advisor_id)
     except ImportValidationError as exc:
         err = str(exc)
         state.current_state = WorkflowState.BLOTTER_HAS_ERRORS
@@ -884,7 +1096,9 @@ async def handle_action(
         return await _handle_enrich(state, limits=limits)
 
     if action_id == ACTION_CONFIRM:
-        return await _handle_confirm_params(state, advisor_id=advisor_id)
+        return await _handle_confirm_params(
+            state, advisor_id=advisor_id, limits=limits
+        )
 
     if action_id == ACTION_RUN:
         return await _handle_run(state, advisor_id=advisor_id, limits=limits)
@@ -895,10 +1109,114 @@ async def handle_action(
     if action_id == ACTION_PLACE:
         return await _handle_place_orders(state, advisor_id=advisor_id, request=request)
 
+    if action_id == ACTION_NEW_SCENARIO:
+        return await _handle_run_new_scenario(state)
+
+    if action_id == ACTION_UPDATE_HOLDINGS:
+        return await _handle_update_holdings(state)
+
+    if action_id == ACTION_SKIP_RATING or action_id.startswith(ACTION_RATE_PREFIX):
+        return await _handle_rating_action(
+            state, advisor_id=advisor_id, action_id=action_id
+        )
+
     raise CopilotFsmError(
         f"Unknown action '{action_id}'.",
         error_code=WBP_SCENARIO_CLIENT,
         http_status=400,
+    )
+
+
+async def _clear_scenario_draft(state: CopilotSessionState) -> None:
+    """Drop active scenario draft so the next prompt creates a new scenario_run."""
+    state.scenario_run_id = None
+    state.scenario_params = None
+    state.params_dirty = False
+    state.rating_captured = False
+    state.rating_for_run_id = None
+
+
+async def _handle_run_new_scenario(
+    state: CopilotSessionState,
+) -> CopilotAgentResponse:
+    """Optimization complete / Orders placed → Enter scenario (same portfolio)."""
+    if state.current_state not in {
+        WorkflowState.OPTIMIZATION_COMPLETE,
+        WorkflowState.ORDERS_PLACED,
+    }:
+        raise CopilotFsmError(
+            "Run new scenario is only available after optimization or orders placed.",
+            error_code=WBP_SCENARIO_CLIENT,
+            http_status=400,
+        )
+    if state.portfolio_id is None:
+        raise CopilotFsmError(
+            "No portfolio on session; import and enrich holdings first.",
+            error_code=WBP_IMPORT_CLIENT,
+            http_status=400,
+        )
+
+    await _clear_scenario_draft(state)
+    state.current_state = WorkflowState.PORTFOLIO_ENRICHED
+    state.pending_action_ids = []
+    sessions.save_session(state)
+
+    return _response(
+        state,
+        content=(
+            "Starting a **new scenario** on the same portfolio "
+            f"`{state.portfolio_id}`.\n\n"
+            "Prior completed runs and blotter orders are kept for history. "
+            "Describe a new market / macro scenario in chat "
+            "(a new scenarioID will be created)."
+        ),
+        actions=[],
+        badges=["Enter scenario"],
+        accept_user_text=True,
+        placeholder="Describe a market / macro scenario…",
+    )
+
+
+async def _handle_update_holdings(
+    state: CopilotSessionState,
+) -> CopilotAgentResponse:
+    """Import securities again (add/change weights) → enrich → Enter scenario."""
+    if state.current_state not in {
+        WorkflowState.SCENARIO_PARSED,
+        WorkflowState.OPTIMIZATION_COMPLETE,
+        WorkflowState.ORDERS_PLACED,
+    }:
+        raise CopilotFsmError(
+            "Update holdings is available after scenario review, optimization, "
+            "or orders placed.",
+            error_code=WBP_SCENARIO_CLIENT,
+            http_status=400,
+        )
+
+    await _clear_scenario_draft(state)
+    state.current_state = WorkflowState.INIT
+    state.pending_action_ids = [ACTION_PROCESS]
+    # Keep portfolio_id so same client_alias can reattach; draft cleared on process.
+    state.draft_id = None
+    state.last_import_rows = None
+    state.last_validation_error = None
+    state.import_hitl = False
+    sessions.save_session(state)
+
+    return _response(
+        state,
+        content=(
+            "**Update holdings:** select your securities table in Excel "
+            "(add names or change weights; same `client_alias` keeps this "
+            "portfolio; new alias starts fresh), then click "
+            "**Process Security List**.\n\n"
+            "Prior scenario runs and orders stay in history. After enrich, "
+            "you’ll return to **Enter scenario** against the updated book."
+        ),
+        actions=[_action_process()],
+        badges=["Import securities"],
+        accept_user_text=True,
+        placeholder="Ask a lookup, or process your securities list…",
     )
 
 
@@ -1030,7 +1348,7 @@ async def _handle_enrich(
         state,
         content="\n\n".join(parts),
         actions=[],
-        badges=["PORTFOLIO_ENRICHED"],
+        badges=["Enter scenario"],
         excel_writes=[write],
         accept_user_text=True,
         placeholder="Describe a market / macro scenario…",
@@ -1041,6 +1359,7 @@ async def _handle_confirm_params(
     state: CopilotSessionState,
     *,
     advisor_id: UUID,
+    limits: TechnicalLimits | None = None,
 ) -> CopilotAgentResponse:
     if state.scenario_run_id is None or state.scenario_params is None:
         raise CopilotFsmError(
@@ -1067,21 +1386,140 @@ async def _handle_confirm_params(
             ) from exc
 
     state.params_dirty = False
+    # Confirm immediately kicks off optimization (no separate Run click).
     state.pending_action_ids = [ACTION_RUN]
-    # Stay SCENARIO_PARSED; free text off after confirm
     sessions.save_session(state)
-    summary = scenario_params_to_summary(params)
+
+    run_resp = await _handle_run(state, advisor_id=advisor_id, limits=limits)
     run_id = state.scenario_run_id
+    confirmed = (
+        f"Scenario parameters confirmed for scenario `{run_id}`. "
+        "Starting optimization…\n\n"
+    )
+    return run_resp.model_copy(update={"content": confirmed + run_resp.content})
+
+
+async def _handle_rating_action(
+    state: CopilotSessionState,
+    *,
+    advisor_id: UUID,
+    action_id: str,
+) -> CopilotAgentResponse:
+    """Optional 1–5 star feedback (or skip) after opti_folio; one per simulation."""
+    if state.current_state != WorkflowState.OPTIMIZATION_COMPLETE:
+        raise CopilotFsmError(
+            "Rating is only available after optimization completes.",
+            error_code=WBP_SCENARIO_CLIENT,
+            http_status=400,
+        )
+    if state.scenario_run_id is None:
+        raise CopilotFsmError(
+            "No scenario_run_id for rating.",
+            error_code=WBP_SCENARIO_CLIENT,
+            http_status=400,
+        )
+
+    _sync_rating_state(state)
+    if state.rating_captured and state.rating_for_run_id == state.scenario_run_id:
+        state.pending_action_ids = _post_opti_action_ids(state)
+        sessions.save_session(state)
+        return _response(
+            state,
+            content=(
+                "This simulation was already rated (one rating per run). "
+                "Continue with **Place All Orders**, **Download PDF**, "
+                "**Run new scenario**, or **Update holdings**."
+            ),
+            actions=_post_opti_actions(state),
+            badges=["OPTIMIZATION_COMPLETE", "RATING_ALREADY_CAPTURED"],
+            accept_user_text=True,
+        )
+
+    if action_id == ACTION_SKIP_RATING:
+        state.rating_captured = True
+        state.rating_for_run_id = state.scenario_run_id
+        state.pending_action_ids = _post_opti_action_ids(state)
+        sessions.save_session(state)
+        return _response(
+            state,
+            content=(
+                "Rating skipped. Continue with **Place All Orders**, "
+                "**Download PDF**, **Run new scenario**, or **Update holdings**."
+            ),
+            actions=_post_opti_actions(state),
+            badges=["OPTIMIZATION_COMPLETE", "RATING_SKIPPED"],
+            accept_user_text=True,
+        )
+
+    if not action_id.startswith(ACTION_RATE_PREFIX):
+        raise CopilotFsmError(
+            f"Unknown rating action '{action_id}'.",
+            error_code=WBP_SCENARIO_CLIENT,
+            http_status=400,
+        )
+    try:
+        stars = int(action_id.removeprefix(ACTION_RATE_PREFIX))
+    except ValueError as exc:
+        raise CopilotFsmError(
+            f"Invalid rating action '{action_id}'.",
+            error_code=WBP_SCENARIO_CLIENT,
+            http_status=400,
+        ) from exc
+    if stars < 1 or stars > 5:
+        raise CopilotFsmError(
+            "Rating must be between 1 and 5 stars.",
+            error_code=WBP_SCENARIO_CLIENT,
+            http_status=400,
+        )
+
+    try:
+        await asyncio.to_thread(
+            save_interaction_rating,
+            advisor_id=advisor_id,
+            scenario_run_id=state.scenario_run_id,
+            rating=stars,
+            portfolio_id=state.portfolio_id,
+            session_id=state.session_id,
+        )
+    except InteractionRatingError as exc:
+        if exc.already_rated:
+            state.rating_captured = True
+            state.rating_for_run_id = state.scenario_run_id
+            state.pending_action_ids = _post_opti_action_ids(state)
+            sessions.save_session(state)
+            return _response(
+                state,
+                content=(
+                    "This simulation was already rated (one rating per run). "
+                    "Continue with **Place All Orders**, **Download PDF**, "
+                    "**Run new scenario**, or **Update holdings**."
+                ),
+                actions=_post_opti_actions(state),
+                badges=["OPTIMIZATION_COMPLETE", "RATING_ALREADY_CAPTURED"],
+                accept_user_text=True,
+            )
+        raise CopilotFsmError(
+            str(exc),
+            error_code=WBP_SCENARIO_SERVER,
+            http_status=500,
+            support=True,
+        ) from exc
+
+    state.rating_captured = True
+    state.rating_for_run_id = state.scenario_run_id
+    state.pending_action_ids = _post_opti_action_ids(state)
+    sessions.save_session(state)
+    stars_label = "★" * stars + "☆" * (5 - stars)
     return _response(
         state,
         content=(
-            f"Scenario parameters confirmed for scenario `{run_id}`.\n\n"
-            "Click **Run Optimization** to rebalance and stage orders."
+            f"Thanks — recorded **{stars}/5** ({stars_label}) for this simulation. "
+            "Continue with **Place All Orders**, **Download PDF**, "
+            "**Run new scenario**, or **Update holdings**."
         ),
-        actions=[_action_run()],
-        badges=["SCENARIO_PARSED"],
-        accept_user_text=False,
-        scenario_params_summary=summary,
+        actions=_post_opti_actions(state),
+        badges=["OPTIMIZATION_COMPLETE", "RATING_SAVED"],
+        accept_user_text=True,
     )
 
 
@@ -1129,20 +1567,30 @@ async def _handle_run(
         ) from exc
 
     if result.status != "COMPLETED":
-        # Allow param edits + confirm, then retry run
-        state.pending_action_ids = [ACTION_CONFIRM, ACTION_RUN]
+        # Allow param edits + confirm, holdings update, then retry run
+        state.pending_action_ids = [
+            ACTION_CONFIRM,
+            ACTION_RUN,
+            ACTION_UPDATE_HOLDINGS,
+        ]
         sessions.save_session(state)
         msg = result.error_message or "Optimization failed."
         return _response(
             state,
             content=f"Optimization did not complete: {msg}",
-            actions=[_action_confirm(), _action_run()],
+            actions=[
+                _action_confirm(),
+                _action_run(),
+                _action_update_holdings(),
+            ],
             guardrails=[
                 GuardrailCheck(
                     rule_id="copilot.optimization_failed",
                     severity="blocking_error",
                     message=msg,
-                    suggested_fix="Adjust parameters and try Run Optimization again.",
+                    suggested_fix=(
+                        "Adjust parameters, **Update holdings**, or try again."
+                    ),
                 )
             ],
             badges=["SCENARIO_PARSED", result.error_code or "FAILED"],
@@ -1163,22 +1611,30 @@ async def _handle_run(
     state.scenario_run_id = result.scenario_run_id
     state.portfolio_id = result.portfolio_id
     state.scenario_params = result.scenario_params.model_dump(mode="json")
-    state.pending_action_ids = [ACTION_PLACE, ACTION_PDF]
+    # New simulation → re-offer optional rating (unless DB already has one).
+    state.rating_for_run_id = result.scenario_run_id
+    state.rating_captured = False
+    _sync_rating_state(state)
+    state.pending_action_ids = _post_opti_action_ids(state)
     sessions.save_session(state)
 
     n_trades = len(result.staged_trades or [])
+    rating_block = _rating_prompt_markdown() if _rating_pending(state) else ""
     return _response(
         state,
         content=(
             f"Optimization complete. Wrote `{REBALANCED_SHEET}` and "
             f"`{ORD_BLOTTER_SHEET}` ({n_trades} staged order(s), status **Pending**).\n\n"
             "Review (and optionally edit) orders on `ord_blotter`, then "
-            "**Place All Orders** to finish. **Download PDF** anytime."
+            "**Place All Orders** to finish. **Download PDF**, "
+            "**Run new scenario**, or **Update holdings** anytime."
+            f"{rating_block}"
         ),
-        actions=[_action_place(), _action_pdf()],
+        actions=_post_opti_actions(state),
         badges=["OPTIMIZATION_COMPLETE"],
         excel_writes=writes,
-        accept_user_text=False,
+        accept_user_text=True,
+        placeholder=_placeholder_for(state),
         scenario_params_summary=scenario_params_to_summary(result.scenario_params),
     )
 
@@ -1207,14 +1663,15 @@ async def _handle_pdf(
             support=exc.http_status >= 500,
         ) from exc
 
-    # Keep Place All available until orders are placed.
+    # Keep Place All available until orders are placed; preserve rating prompt.
     if state.current_state == WorkflowState.ORDERS_PLACED:
-        state.pending_action_ids = [ACTION_PDF]
-        actions = [_action_pdf()]
+        state.pending_action_ids = _orders_placed_action_ids()
+        actions = _orders_placed_actions()
         badges = ["ORDERS_PLACED", "PDF_READY"]
     else:
-        state.pending_action_ids = [ACTION_PLACE, ACTION_PDF]
-        actions = [_action_place(), _action_pdf()]
+        _sync_rating_state(state)
+        state.pending_action_ids = _post_opti_action_ids(state)
+        actions = _post_opti_actions(state)
         badges = ["OPTIMIZATION_COMPLETE", "PDF_READY"]
     sessions.save_session(state)
     artifact = DownloadArtifact(
@@ -1228,7 +1685,8 @@ async def _handle_pdf(
         actions=actions,
         badges=badges,
         download=artifact,
-        accept_user_text=False,
+        accept_user_text=True,
+        placeholder=_placeholder_for(state),
     )
 
 
@@ -1265,7 +1723,7 @@ async def _handle_place_orders(
     write = build_ord_blotter_write(orders, scenario_run_id=state.scenario_run_id)
 
     state.current_state = WorkflowState.ORDERS_PLACED
-    state.pending_action_ids = [ACTION_PDF]
+    state.pending_action_ids = _orders_placed_action_ids()
     sessions.save_session(state)
 
     hitl_line = (
@@ -1281,12 +1739,168 @@ async def _handle_place_orders(
         content=(
             f"Placed **{len(orders)}** order(s) (dummy OMS → **Executed**). "
             f"`{ORD_BLOTTER_SHEET}` updated.{hitl_line}{detail}\n\n"
-            "Workflow complete. Optional: **Download PDF**."
+            "Workflow complete for this scenario. Optional: **Download PDF**, "
+            "**Run new scenario**, or **Update holdings** on this portfolio."
         ),
-        actions=[_action_pdf()],
+        actions=_orders_placed_actions(),
         badges=["ORDERS_PLACED"] + (["ORDERS_HITL"] if orders_hitl else []),
         excel_writes=[write],
-        accept_user_text=False,
+        accept_user_text=True,
+        placeholder=_placeholder_for(state),
+    )
+
+
+def _fsm_continue_hint(state: CopilotSessionState) -> str:
+    """Guide the advisor back to the most likely pending FSM action."""
+    pending = list(state.pending_action_ids or [])
+    label_map = {
+        ACTION_PROCESS: "Process Security List",
+        ACTION_REPROCESS: "Reprocess Corrected List",
+        ACTION_DROP: "Drop Invalid and Proceed",
+        ACTION_ENRICH: "Enrich Portfolio",
+        ACTION_CONFIRM: "Confirm & Run Optimization",
+        ACTION_RUN: "Run Optimization",
+        ACTION_PLACE: "Place All Orders",
+        ACTION_PDF: "Download PDF",
+        ACTION_SKIP_RATING: "Skip rating (or tap stars)",
+        ACTION_NEW_SCENARIO: "Run new scenario",
+        ACTION_UPDATE_HOLDINGS: "Update holdings",
+    }
+    # Prefer primary workflow actions over rating skips / secondary restarts
+    preferred = [
+        a
+        for a in pending
+        if a
+        not in {
+            ACTION_SKIP_RATING,
+            ACTION_NEW_SCENARIO,
+            ACTION_UPDATE_HOLDINGS,
+            *_RATE_ACTION_IDS,
+        }
+    ]
+    if preferred:
+        labels = [label_map.get(a, a) for a in preferred[:2]]
+        joined = " / ".join(f"**{x}**" for x in labels)
+        return f"\n\n---\nContinue the workflow: {joined}."
+    if state.current_state == WorkflowState.PORTFOLIO_ENRICHED:
+        return (
+            "\n\n---\nContinue the workflow: describe a market / macro scenario "
+            "in chat."
+        )
+    if state.current_state == WorkflowState.INIT:
+        return (
+            "\n\n---\nContinue the workflow: select your securities table, then "
+            "click **Process Security List**."
+        )
+    if _rating_pending(state):
+        return (
+            "\n\n---\nOptional: rate this simulation, or continue with "
+            "**Place All Orders** / **Download PDF**."
+        )
+    return "\n\n---\nContinue with the workflow actions below when ready."
+
+
+def _ops_states() -> frozenset[WorkflowState]:
+    return frozenset(
+        {
+            WorkflowState.INIT,
+            WorkflowState.PORTFOLIO_ENRICHED,
+            WorkflowState.SCENARIO_PARSED,
+            WorkflowState.OPTIMIZATION_COMPLETE,
+            WorkflowState.ORDERS_PLACED,
+        }
+    )
+
+
+async def _handle_ops_query(
+    state: CopilotSessionState,
+    text: str,
+    *,
+    advisor_id: UUID,
+    limits: TechnicalLimits | None,
+) -> CopilotAgentResponse | None:
+    """If text is an ops query, answer it and guide back to the FSM."""
+    if state.current_state not in _ops_states():
+        return None
+    match = parse_ops_query(text)
+    if match is None:
+        return None
+
+    result = await execute_ops_query(
+        match,
+        advisor_id=advisor_id,
+        session_portfolio_id=state.portfolio_id,
+        session_scenario_run_id=state.scenario_run_id,
+        session_ops_kind=state.last_ops_kind,
+        session_ops_portfolio_id=state.last_ops_portfolio_id,
+        session_ops_scenario_run_id=state.last_ops_scenario_run_id,
+        session_ops_client_alias=state.last_ops_client_alias,
+        session_ops_load_target=state.last_ops_load_target,
+        limits=limits,
+    )
+
+    if result.ok:
+        state.last_ops_kind = result.ops_kind
+        state.last_ops_portfolio_id = result.ops_portfolio_id
+        state.last_ops_scenario_run_id = result.ops_scenario_run_id
+        state.last_ops_client_alias = result.ops_client_alias
+        state.last_ops_load_target = result.ops_load_target
+        sessions.save_session(state)
+
+    excel_writes: list[ExcelWriteSpec] = []
+    if result.excel_scratchpad_positions:
+        excel_writes.append(
+            build_scratchpad_write(
+                result.excel_scratchpad_positions,
+                hide_source_sheet=None,
+            )
+        )
+    if result.excel_rebalanced is not None:
+        excel_writes.append(
+            build_rebalanced_write(
+                result.excel_rebalanced,
+                scenario_run_id=result.excel_rebalanced.scenario_run_id,
+            )
+        )
+
+    download = None
+    if result.download_base64 and result.download_filename:
+        download = DownloadArtifact(
+            kind="pdf",
+            filename=result.download_filename,
+            content_base64=result.download_base64,
+        )
+
+    guardrails: list[GuardrailCheck] = []
+    if not result.ok:
+        guardrails.append(
+            GuardrailCheck(
+                rule_id="copilot.ops_unavailable",
+                severity="warning",
+                message=result.content.split("\n")[0],
+                suggested_fix="Check the client/portfolio exists and has a COMPLETED run.",
+            )
+        )
+
+    content = result.content + _fsm_continue_hint(state)
+    return _response(
+        state,
+        content=content,
+        guardrails=guardrails,
+        badges=[workflow_status_label(state.current_state)]
+        + ([result.error_code] if result.error_code else ["OPS_QUERY"]),
+        excel_writes=excel_writes,
+        download=download,
+        accept_user_text=_accepts_user_text(state),
+        placeholder=_placeholder_for(state),
+        show_star_rating=_rating_pending(state),
+        scenario_params_summary=(
+            scenario_params_to_summary(
+                ScenarioParams.model_validate(state.scenario_params)
+            )
+            if state.scenario_params
+            else None
+        ),
     )
 
 
@@ -1300,6 +1914,7 @@ async def handle_message(
     session_id: str,
     advisor_id: UUID,
     text: str,
+    limits: TechnicalLimits | None = None,
 ) -> CopilotAgentResponse:
     state = sessions.get_session(session_id=session_id, advisor_id=advisor_id)
 
@@ -1316,72 +1931,143 @@ async def handle_message(
 
     cleaned = layer1.text
 
-    # Free text only in PORTFOLIO_ENRICHED and SCENARIO_PARSED (pre-confirm)
+    # Holdings restart (button equivalent) before ops — "enrich portfolio"
+    # must not be stolen by price-refresh lookups.
+    if (
+        ACTION_UPDATE_HOLDINGS in state.pending_action_ids
+        and _HOLDINGS_RESTART_RE.search(cleaned)
+    ):
+        return await _handle_update_holdings(state)
+
+    # Ops queries win over scenario prompts (then guide back to FSM).
+    ops_resp = await _handle_ops_query(
+        state, cleaned, advisor_id=advisor_id, limits=limits
+    )
+    if ops_resp is not None:
+        return ops_resp
+
+    # Identifiers: recall/audit allowed (read-only); set/write always blocked.
+    id_intent, id_refs = classify_identifier_intent(cleaned)
+    if id_intent == IntentClass.ID_WRITE_ATTEMPT:
+        return _response(
+            state,
+            content=redirect_for_intent(IntentClass.ID_WRITE_ATTEMPT)
+            + _fsm_continue_hint(state),
+            guardrails=[id_write_guardrail()],
+            accept_user_text=_accepts_user_text(state),
+            placeholder=_placeholder_for(state),
+            scenario_params_summary=(
+                scenario_params_to_summary(
+                    ScenarioParams.model_validate(state.scenario_params)
+                )
+                if state.scenario_params
+                else None
+            ),
+        )
+    if id_intent == IntentClass.ID_RECALL:
+        refs = id_refs or extract_id_references(cleaned)
+        content = format_id_recall(refs, advisor_id=advisor_id) + _fsm_continue_hint(
+            state
+        )
+        return _response(
+            state,
+            content=content,
+            guardrails=[
+                GuardrailCheck(
+                    rule_id="copilot.id_recall",
+                    severity="info",
+                    message="Identifier lookup is read-only; session IDs unchanged.",
+                )
+            ],
+            accept_user_text=_accepts_user_text(state),
+            placeholder=_placeholder_for(state),
+            scenario_params_summary=(
+                scenario_params_to_summary(
+                    ScenarioParams.model_validate(state.scenario_params)
+                )
+                if state.scenario_params
+                else None
+            ),
+        )
+
+    # Free text: scenario / param edit windows
     if state.current_state == WorkflowState.PORTFOLIO_ENRICHED:
         return await _message_scenario_prompt(state, cleaned, advisor_id=advisor_id)
 
     if state.current_state == WorkflowState.SCENARIO_PARSED:
-        # After confirm, only Run Optimization is pending → redirect
         if state.pending_action_ids == [ACTION_RUN]:
-            intent, checks = await classify_intent(
-                cleaned, state=state.current_state
-            )
+            # Auto-run already consumes confirm; leftover RUN-only is rare.
             return _response(
                 state,
-                content=redirect_for_intent(intent),
-                guardrails=checks,
+                content=(
+                    redirect_for_intent(IntentClass.WORKFLOW_COMMAND)
+                    + _fsm_continue_hint(state)
+                ),
                 actions=[_action_run()],
-                accept_user_text=False,
+                accept_user_text=_accepts_user_text(state),
+                placeholder=_placeholder_for(state),
             )
         return await _message_param_edit(state, cleaned)
 
-    intent, checks = await classify_intent(cleaned, state=state.current_state)
-    if intent in {
-        IntentClass.OFF_TOPIC_NONSENSE,
-        IntentClass.PROMPT_INJECTION,
-        IntentClass.WORKFLOW_COMMAND,
-        IntentClass.FINANCIAL_INQUIRY,
-        IntentClass.SCENARIO_PROMPT,
-        IntentClass.PARAM_EDIT,
-    }:
+    # Other ops-enabled states: non-ops free text → gentle redirect + guide
+    if state.current_state in _ops_states():
         return _response(
             state,
-            content=redirect_for_intent(intent),
-            guardrails=checks
-            or [
-                GuardrailCheck(
-                    rule_id="copilot.state_gate",
-                    severity="warning",
-                    message=redirect_for_intent(intent),
-                )
-            ],
-            accept_user_text=False,
-            placeholder=None,
+            content=(
+                "I can help with read-only lookups (PDF, latest portfolio, "
+                "trades, house research, update prices) — or continue the workflow."
+                + _fsm_continue_hint(state)
+            ),
+            accept_user_text=True,
+            placeholder=_placeholder_for(state),
         )
 
+    intent, checks = await classify_intent(cleaned, state=state.current_state)
     return _response(
         state,
-        content=redirect_for_intent(IntentClass.OFF_TOPIC_NONSENSE),
-        accept_user_text=False,
+        content=redirect_for_intent(intent) + _fsm_continue_hint(state),
+        guardrails=checks
+        or [
+            GuardrailCheck(
+                rule_id="copilot.state_gate",
+                severity="warning",
+                message=redirect_for_intent(intent),
+            )
+        ],
+        accept_user_text=_accepts_user_text(state),
+        placeholder=_placeholder_for(state),
     )
 
 
 def _accepts_user_text(state: CopilotSessionState) -> bool:
-    if state.current_state == WorkflowState.PORTFOLIO_ENRICHED:
+    if state.current_state in {
+        WorkflowState.INIT,
+        WorkflowState.PORTFOLIO_ENRICHED,
+        WorkflowState.OPTIMIZATION_COMPLETE,
+        WorkflowState.ORDERS_PLACED,
+    }:
         return True
     if state.current_state == WorkflowState.SCENARIO_PARSED:
-        return ACTION_CONFIRM in state.pending_action_ids
+        # Param edits while confirm pending; ops queries always allowed via composer.
+        return True
     return False
 
 
 def _placeholder_for(state: CopilotSessionState) -> str | None:
+    if state.current_state == WorkflowState.INIT:
+        return "Ask a lookup, or process your securities list…"
     if state.current_state == WorkflowState.PORTFOLIO_ENRICHED:
-        return "Describe a market / macro scenario…"
-    if (
-        state.current_state == WorkflowState.SCENARIO_PARSED
-        and ACTION_CONFIRM in state.pending_action_ids
-    ):
-        return "Edit parameters or confirm…"
+        return "Describe a scenario, or ask a portfolio/PDF lookup…"
+    if state.current_state == WorkflowState.SCENARIO_PARSED:
+        if ACTION_CONFIRM in state.pending_action_ids:
+            return "Edit parameters, confirm, or ask a lookup…"
+        return "Ask a lookup, or continue the workflow…"
+    if state.current_state == WorkflowState.OPTIMIZATION_COMPLETE:
+        return (
+            "Ask a lookup, place orders, PDF, new scenario, or update holdings…"
+        )
+    if state.current_state == WorkflowState.ORDERS_PLACED:
+        return "Ask a lookup, PDF, new scenario, or update holdings…"
     return None
 
 
@@ -1439,13 +2125,13 @@ async def _message_scenario_prompt(
     state.scenario_run_id = parsed.scenario_run_id
     state.scenario_params = params.model_dump(mode="json")
     state.params_dirty = False
-    state.pending_action_ids = [ACTION_CONFIRM]
+    state.pending_action_ids = _review_scenario_action_ids()
     sessions.save_session(state)
 
     return _response(
         state,
         content=format_scenario_params_markdown(params),
-        actions=[_action_confirm()],
+        actions=_review_scenario_actions(),
         badges=["SCENARIO_PARSED"],
         accept_user_text=True,
         placeholder="Edit parameters (e.g. lookback 3Y) or confirm…",
@@ -1471,12 +2157,21 @@ async def _message_param_edit(
             )
 
     intent, checks = await classify_intent(text, state=state.current_state)
-    if intent == IntentClass.PROMPT_INJECTION or intent == IntentClass.OFF_TOPIC_NONSENSE:
+    if intent in {
+        IntentClass.PROMPT_INJECTION,
+        IntentClass.OFF_TOPIC_NONSENSE,
+        IntentClass.ID_WRITE_ATTEMPT,
+    }:
         return _response(
             state,
             content=redirect_for_intent(intent),
-            guardrails=checks,
-            actions=[_action_confirm()],
+            guardrails=checks
+            or (
+                [id_write_guardrail()]
+                if intent == IntentClass.ID_WRITE_ATTEMPT
+                else []
+            ),
+            actions=_review_scenario_actions(),
             accept_user_text=True,
             placeholder="Edit parameters or confirm…",
             scenario_params_summary=(
@@ -1507,9 +2202,10 @@ async def _message_param_edit(
                 "I couldn't apply that as a parameter edit. "
                 "Try phrases like “lookback 3Y”, “tone risk_off”, "
                 "“risk aversion 2.5”, or “freeze AAPL, MSFT”, "
-                "or click **Confirm Scenario Params**."
+                "or click **Confirm & Run Optimization**. "
+                "To change securities, click **Update holdings**."
             ),
-            actions=[_action_confirm()],
+            actions=_review_scenario_actions(),
             accept_user_text=True,
             placeholder="Edit parameters or confirm…",
             scenario_params_summary=scenario_params_to_summary(current),
@@ -1517,7 +2213,7 @@ async def _message_param_edit(
 
     state.scenario_params = patched.model_dump(mode="json")
     state.params_dirty = True
-    state.pending_action_ids = [ACTION_CONFIRM]
+    state.pending_action_ids = _review_scenario_action_ids()
     sessions.save_session(state)
 
     return _response(
@@ -1526,7 +2222,7 @@ async def _message_param_edit(
             "Updated draft parameters (not yet saved):\n\n"
             + format_scenario_params_markdown(patched)
         ),
-        actions=[_action_confirm()],
+        actions=_review_scenario_actions(),
         badges=["SCENARIO_PARSED", "PARAMS_DIRTY"],
         accept_user_text=True,
         placeholder="Further edits, or confirm…",

@@ -42,6 +42,12 @@ def test_in_scope_prompts(prompt: str) -> None:
         "asdf",
         "Tell me a joke about cats",
         "lol",
+        "your mom",
+        "Your Mum is weird",
+        "yo mama",
+        "PENUS",
+        "fuck you markets",
+        "stupid bot",
     ],
 )
 def test_out_of_scope_prompts(prompt: str) -> None:

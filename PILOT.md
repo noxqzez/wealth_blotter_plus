@@ -28,10 +28,15 @@ If any of these are missing, email the host and stop here.
 
 **Also have ready**
 
-- A Mac with **Microsoft Excel** (Microsoft 365 or a recent Excel for Mac)
+- A computer with **desktop Microsoft Excel** — **Mac or Windows** both work  
+  (Microsoft 365 desktop Excel, or a recent Excel for Mac / Excel for Windows).  
+  Excel **in a web browser only** (Excel Online) is not supported for this pilot.
 - About 20–30 minutes for first-time setup
 - Your **own** OpenAI or Anthropic API key (you already know how to get this)
-- Permission to install small developer tools once (`Homebrew`, `mkcert`, `Node.js`) — ask IT if your company locks this down
+- Permission to install small developer tools once (`Node.js`, `mkcert`) — ask IT if your company locks this down
+
+**Mac vs Windows:** Steps A–C and E–H are the same idea on both.  
+Step D (install tools) and parts of Step G (sideload) differ — follow the subsection for your OS.
 
 ---
 
@@ -40,7 +45,7 @@ If any of these are missing, email the host and stop here.
 - [ ] Step A — Request access in the browser  
 - [ ] Step B — Wait for “you’re approved” from the host  
 - [ ] Step C — Accept GitHub invite and download the project  
-- [ ] Step D — Install one-time Mac tools (Homebrew, Node, mkcert)  
+- [ ] Step D — Install one-time tools (Mac **or** Windows)  
 - [ ] Step E — Point Excel at the hosted API (`.env` file)  
 - [ ] Step F — Start the local task pane (`npm run dev`)  
 - [ ] Step G — Load the add-in in Excel (sideload)  
@@ -106,11 +111,15 @@ cd wealth_blotter_plus
 
 ---
 
-## Step D — One-time Mac setup (tools)
+## Step D — One-time setup (tools)
 
-Do this **once** on each Mac. You will use the **Terminal** app.
+Do this **once** on each computer. Pick **Mac** or **Windows** below.
 
-### D1. Install Homebrew (if you do not have it)
+### D-Mac — macOS
+
+You will use the **Terminal** app.
+
+#### D-Mac-1. Install Homebrew (if you do not have it)
 
 1. Open **Terminal**.
 2. Paste this and press Enter:
@@ -122,7 +131,7 @@ Do this **once** on each Mac. You will use the **Terminal** app.
 3. Follow the prompts. Enter your Mac login password when asked (characters will not show as you type — that is normal).
 4. If Homebrew prints “Next steps” with two `echo` / `eval` lines, copy and run those too so `brew` works in new Terminal windows.
 
-### D2. Install Node.js
+#### D-Mac-2. Install Node.js
 
 ```bash
 brew install node
@@ -137,7 +146,7 @@ npm -v
 
 You should see version numbers (for example `v20…` and `10…`).
 
-### D3. Install a trusted local HTTPS certificate (`mkcert`)
+#### D-Mac-3. Install a trusted local HTTPS certificate (`mkcert`)
 
 Excel requires a trusted certificate for the local task pane.
 
@@ -147,6 +156,37 @@ mkcert -install
 ```
 
 Enter your Mac password if asked. If Excel later complains about certificates, **quit Excel completely** (`Cmd + Q`) and reopen it after this step.
+
+### D-Windows — Windows
+
+You will use **PowerShell** or **Command Prompt**.
+
+#### D-Windows-1. Install Node.js
+
+1. Open [https://nodejs.org](https://nodejs.org) and download the **LTS** Windows installer.
+2. Run the installer (accept defaults; include npm).
+3. Close and reopen PowerShell, then check:
+
+```powershell
+node -v
+npm -v
+```
+
+You should see version numbers.
+
+#### D-Windows-2. Install `mkcert` (trusted HTTPS for localhost)
+
+1. Install [Chocolatey](https://chocolatey.org/install) **or** download a `mkcert` Windows release from its GitHub releases page (ask your host/IT if unsure).
+2. With Chocolatey in an **Administrator** PowerShell:
+
+```powershell
+choco install mkcert -y
+mkcert -install
+```
+
+3. Approve the certificate prompts Windows shows.
+
+If Excel later complains about certificates, fully quit Excel and reopen after `mkcert -install`.
 
 ---
 
@@ -177,16 +217,29 @@ If the host’s URL is different, replace the part after `=` — **no space**, *
 
 ## Step F — Start the Excel task pane (every time you work)
 
-Keep this Terminal window open while you use Excel.
+Keep the terminal/PowerShell window open while you use Excel.
+
+### Mac
 
 1. Open **Terminal**.
-2. Go to the Excel frontend folder (adjust the path if your folder is elsewhere):
+2. Go to the Excel frontend folder (adjust the path if needed):
 
 ```bash
 cd ~/Documents/wealth_blotter_plus/frontend_excel
 ```
 
+### Windows
+
+1. Open **PowerShell**.
+2. Go to the Excel frontend folder (adjust the path if needed):
+
+```powershell
+cd $env:USERPROFILE\Documents\wealth_blotter_plus\frontend_excel
+```
+
 If you downloaded a ZIP named `wealth_blotter_plus-main`, use that folder name instead.
+
+### Both Mac and Windows (same commands)
 
 3. First time only in this folder — install packages (may take a few minutes):
 
@@ -202,9 +255,9 @@ npm run dev
 ```
 
 5. Leave this running. You should see something mentioning `https://localhost:3000`.  
-   Do **not** close Terminal until you are done working.
+   Do **not** close the window until you are done working.
 
-If you change the `.env` file later, stop the server (`Ctrl + C` in Terminal) and run `npm run dev` again.
+If you change the `.env` file later, stop the server (`Ctrl + C`) and run `npm run dev` again.
 
 ---
 
@@ -214,9 +267,9 @@ Do this while `npm run dev` is still running.
 
 ### G1. Open Excel
 
-Open Microsoft Excel on your Mac (a blank workbook is fine).
+Open **desktop** Microsoft Excel on your Mac or Windows PC (a blank workbook is fine).
 
-### G2. Upload the manifest
+### G2. Upload the manifest (both Mac and Windows)
 
 Exact menus vary slightly by Excel version. Try this path first:
 
@@ -227,21 +280,31 @@ Exact menus vary slightly by Excel version. Try this path first:
 5. Browse to your project folder → **`frontend_excel`** → select **`manifest.xml`**.
 6. Confirm / Upload.
 
-Alternative (if you have the Developer tab):
+**Mac alternative** (Developer tab):
 
 1. **Excel → Preferences → Ribbon & Toolbar** → enable **Developer**.
-2. **Developer → Add-ins → Excel Add-ins / My Add-ins → Upload**.
+2. **Developer → Add-ins → Upload**.
 
-### G3. Open the Wealth Blotter Plus task pane
+**Windows alternative** (shared folder sideload, if Upload is missing):
 
-1. After the add-in loads, look for a **Wealth Blotter Plus** button on the ribbon (often under **Home** or a custom tab named in the manifest).
+1. Create a folder, e.g. `C:\Users\YourName\ExcelAddins`.
+2. Copy `frontend_excel\manifest.xml` into that folder.
+3. In Excel: **File → Options → Trust Center → Trust Center Settings → Trusted Add-in Catalogs**.
+4. Add the folder path, check **Show in Menu**, restart Excel.
+5. **Insert → My Add-ins → Shared Folder** → select the add-in.
+
+### G3. Open the task pane
+
+1. After the add-in loads, look for a **Copilot** / Wealth Blotter button on the ribbon.
 2. Click it to open the **task pane** on the right.
 3. You should see fields for **Email**, **Password**, **LLM API key (BYOK)**, and **Provider**.
 
 ### If Excel says the certificate is not trusted
 
+**Mac**
+
 1. Quit Excel fully (`Cmd + Q`).
-2. In Terminal, run again:
+2. In Terminal:
 
 ```bash
 mkcert -install
@@ -251,6 +314,19 @@ npm run dev
 ```
 
 3. Reopen Excel and upload `manifest.xml` again.
+
+**Windows**
+
+1. Fully quit Excel.
+2. In Administrator PowerShell, run `mkcert -install` again, then:
+
+```powershell
+cd $env:USERPROFILE\Documents\wealth_blotter_plus\frontend_excel
+npm run certs
+npm run dev
+```
+
+3. Reopen Excel and load the add-in again.
 
 ---
 
@@ -293,14 +369,16 @@ Once signed in:
 
 Next time you work you only need:
 
-1. Terminal:
+1. Open Terminal (Mac) or PowerShell (Windows), then:
 
 ```bash
 cd ~/Documents/wealth_blotter_plus/frontend_excel
 npm run dev
 ```
 
-2. Open Excel → open the Wealth Blotter Plus task pane (re-upload `manifest.xml` only if the add-in disappeared).
+(On Windows use `cd $env:USERPROFILE\Documents\wealth_blotter_plus\frontend_excel` if needed.)
+
+2. Open Excel → open the Copilot / Wealth Blotter task pane (re-upload `manifest.xml` only if the add-in disappeared).
 3. Paste BYOK key → Sign in → work.
 
 ---

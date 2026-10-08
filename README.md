@@ -78,9 +78,12 @@ See [backend/app/db/RAG_POC.md](backend/app/db/RAG_POC.md).
 
 ## Pilot users
 
-**Share this signup link after deploy:** `https://<your-service>.onrender.com/request-access`
+**Share with pilots**
 
-Closed pilot onboarding (request access → approval → Excel → BYOK): **[PILOT.md](PILOT.md)**.
+1. Signup: `https://wealth-blotter-plus.onrender.com/request-access` (or your Render URL)
+2. GitHub repo invite
+3. Tell them to follow the non-technical walkthrough: **[PILOT.md](PILOT.md)**  
+   (request access → approval → download repo → Mac tools → Excel sideload → BYOK → sign in)
 
 Host/operator Render + Supabase checklist: [docs/PILOT_PHASE1.md](docs/PILOT_PHASE1.md).
 

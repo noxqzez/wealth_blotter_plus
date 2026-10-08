@@ -89,7 +89,7 @@ After deploy, note your public URL: `https://<service>.onrender.com`
 1. **Request access URL**: `https://<your-render-service>.onrender.com/request-access`
 2. **Invite to your private GitHub repo** (Excel add-in).
 3. **API base URL** for `VITE_API_BASE_URL`: `https://<your-render-service>.onrender.com`
-4. Point them at **[PILOT.md](../PILOT.md)** for Excel + BYOK after approval.
+4. Point them at **[PILOT.md](../PILOT.md)** — detailed non-technical steps for signup, Mac/Excel setup, BYOK, and sign-in.
 
 You do **not** give them: service role key, JWT secret, Render credentials, or other pilots’ data.
 

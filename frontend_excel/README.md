@@ -2,7 +2,7 @@
 
 Excel blocks unsigned/self-signed certs (“not signed by a valid security certificate”).
 
-**Pilot users:** full register → approval → BYOK → sign-in steps are in the repo root **[PILOT.md](../PILOT.md)**.
+**Pilot users (non-technical walkthrough):** follow the repo root **[PILOT.md](../PILOT.md)** end-to-end — browser signup, Mac setup, `.env`, `npm run dev`, sideload, BYOK, sign-in.
 
 ## One-time setup (run in Terminal.app — needs your Mac password)
 

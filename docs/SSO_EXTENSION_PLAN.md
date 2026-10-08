@@ -1,8 +1,17 @@
 # SSO Extension Plan (Phase 1.5)
 
 **Trigger phrase:** `build SSO extension`  
-**Status:** Deferred — email/password pilot first  
+**Status:** Implemented in code — **SSO_ENABLED=false by default** (not for pilot onboarding yet)  
 **Depends on:** Phase 1 pilot auth (Supabase JWT + `profiles` approval + BYOK) already shipped
+
+### How to enable later (host only)
+
+1. Configure Google / Azure (Entra) / etc. in Supabase Auth → Providers  
+2. Add redirect URL: `https://<your-api>/auth/sso/callback`  
+3. On Render set: `SSO_ENABLED=true`, `SSO_PROVIDERS=google,azure` (as needed)  
+4. Keep `SSO_REQUIRE_APPROVAL=true` unless using `SSO_AUTO_APPROVE_DOMAINS`  
+5. Confirm Excel `manifest.xml` `AppDomains` include the API host + Supabase URL  
+6. Test in staging before telling pilots
 
 ## Goal
 

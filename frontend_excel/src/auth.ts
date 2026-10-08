@@ -110,6 +110,127 @@ export function saveByok(apiKey: string, provider: string): void {
   localStorage.setItem(LLM_PROVIDER_KEY, provider.trim() || "openai");
 }
 
+export async function fetchSsoStatus(): Promise<{
+  enabled: boolean;
+  providers: string[];
+}> {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/auth/sso/status`);
+    if (!res.ok) return { enabled: false, providers: [] };
+    const body = (await res.json()) as {
+      enabled?: boolean;
+      providers?: string[];
+    };
+    return {
+      enabled: Boolean(body.enabled),
+      providers: Array.isArray(body.providers) ? body.providers : [],
+    };
+  } catch {
+    return { enabled: false, providers: [] };
+  }
+}
+
+async function startSsoAuthorize(provider: string): Promise<string> {
+  const res = await fetch(
+    `${API_BASE}/api/v1/auth/sso/authorize?provider=${encodeURIComponent(provider)}`,
+  );
+  const text = await res.text();
+  let body: { authorize_url?: string; detail?: unknown } = {};
+  try {
+    body = JSON.parse(text) as typeof body;
+  } catch {
+    /* raw */
+  }
+  if (!res.ok || !body.authorize_url) {
+    const d = body.detail;
+    const msg =
+      typeof d === "object" && d && "message" in d
+        ? String((d as { message: string }).message)
+        : typeof d === "string"
+          ? d
+          : text || "SSO is not available.";
+    throw new Error(msg);
+  }
+  return body.authorize_url;
+}
+
+function openSsoDialog(
+  authorizeUrl: string,
+  onResult: (payload: {
+    ok: boolean;
+    access_token?: string;
+    email?: string;
+    error?: string;
+  }) => void,
+): void {
+  const officeUi = (
+    window as unknown as {
+      Office?: {
+        context?: {
+          ui?: {
+            displayDialogAsync?: (
+              url: string,
+              opts: { height: number; width: number; displayInIframe: boolean },
+              cb: (asyncResult: {
+                status: string;
+                value?: {
+                  addEventHandler: (
+                    eventType: string,
+                    handler: (arg: { message: string }) => void,
+                  ) => void;
+                  close: () => void;
+                };
+                error?: { message?: string };
+              }) => void,
+            );
+          };
+        };
+      };
+    }
+  ).Office?.context?.ui;
+
+  if (officeUi?.displayDialogAsync) {
+    officeUi.displayDialogAsync(
+      authorizeUrl,
+      { height: 60, width: 40, displayInIframe: false },
+      (asyncResult) => {
+        if (asyncResult.status !== "succeeded" || !asyncResult.value) {
+          onResult({
+            ok: false,
+            error: asyncResult.error?.message || "Could not open SSO dialog.",
+          });
+          return;
+        }
+        const dialog = asyncResult.value;
+        dialog.addEventHandler("DialogMessageReceived", (arg) => {
+          try {
+            const payload = JSON.parse(arg.message) as {
+              ok: boolean;
+              access_token?: string;
+              email?: string;
+              error?: string;
+            };
+            onResult(payload);
+          } catch {
+            onResult({ ok: false, error: "Invalid SSO dialog response." });
+          } finally {
+            dialog.close();
+          }
+        });
+      },
+    );
+    return;
+  }
+
+  // Fallback outside Office: open authorize URL (callback page completes flow).
+  window.open(authorizeUrl, "_blank", "noopener,noreferrer");
+  onResult({
+    ok: false,
+    error:
+      "Opened SSO in a browser window. If sign-in succeeds there, return here and use password login or retry from Excel.",
+  });
+}
+
 export function wirePilotAuthPanel(): void {
   const emailEl = document.getElementById("pilotEmail") as HTMLInputElement | null;
   const passEl = document.getElementById("pilotPassword") as HTMLInputElement | null;
@@ -121,6 +242,8 @@ export function wirePilotAuthPanel(): void {
   const registerBtn = document.getElementById("pilotRegisterBtn");
   const loginBtn = document.getElementById("pilotLoginBtn");
   const logoutBtn = document.getElementById("pilotLogoutBtn");
+  const ssoBox = document.getElementById("pilotSsoBox");
+  const ssoActions = document.getElementById("pilotSsoActions");
 
   const setMsg = (text: string, isError = false) => {
     if (!statusEl) return;
@@ -131,6 +254,40 @@ export function wirePilotAuthPanel(): void {
   if (keyEl) keyEl.value = getLlmApiKey();
   if (providerEl) providerEl.value = getLlmProvider();
   if (getAccessToken()) setMsg("Signed in (token stored).");
+
+  void (async () => {
+    const sso = await fetchSsoStatus();
+    if (!sso.enabled || !sso.providers.length || !ssoBox || !ssoActions) {
+      return;
+    }
+    ssoBox.hidden = false;
+    for (const provider of sso.providers) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "secondary";
+      btn.textContent = `SSO: ${provider}`;
+      btn.addEventListener("click", async () => {
+        try {
+          saveByok(keyEl?.value || "", providerEl?.value || "openai");
+          setMsg("Starting SSO…");
+          // Fail fast with API error message when SSO is off / misconfigured.
+          await startSsoAuthorize(provider);
+          const startUrl = `${API_BASE}/auth/sso/start?provider=${encodeURIComponent(provider)}`;
+          openSsoDialog(startUrl, (payload) => {
+            if (!payload.ok || !payload.access_token) {
+              setMsg(payload.error || "SSO cancelled or failed.", true);
+              return;
+            }
+            localStorage.setItem(TOKEN_KEY, payload.access_token);
+            setMsg(`Signed in via SSO as ${payload.email || "advisor"}`);
+          });
+        } catch (err) {
+          setMsg(err instanceof Error ? err.message : String(err), true);
+        }
+      });
+      ssoActions.appendChild(btn);
+    }
+  })();
 
   registerBtn?.addEventListener("click", async () => {
     try {

@@ -22,6 +22,7 @@ from backend.app.services.usage_telemetry import record_usage_metric
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _REQUEST_ACCESS_HTML = _STATIC_DIR / "request_access.html"
+_SSO_CALLBACK_HTML = _STATIC_DIR / "sso_callback.html"
 
 structlog.configure(
     processors=[
@@ -41,6 +42,8 @@ _TELEMETRY_SKIP_PREFIXES = (
     "/openapi.json",
     "/redoc",
     "/request-access",
+    "/auth/sso/callback",
+    "/auth/sso/start",
 )
 _TELEMETRY_SKIP_EXACT = frozenset({"/"})
 
@@ -222,6 +225,41 @@ async def request_access_page() -> FileResponse:
         raise HTTPException(status_code=404, detail="Request-access page not found")
     return FileResponse(
         path=_REQUEST_ACCESS_HTML,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/auth/sso/start", include_in_schema=False)
+async def sso_start_page(
+    request: Request,
+    provider: str = "google",
+) -> RedirectResponse:
+    """
+    Excel-friendly SSO entry: redirect to Supabase authorize when enabled.
+    Returns 403 JSON via authorize helper when SSO_ENABLED=false.
+    """
+    from backend.app.api.v1.auth_pilot import _public_base
+    from backend.app.services import pilot_sso as sso_svc
+
+    result = sso_svc.authorize_sso(
+        provider=provider,
+        public_base=_public_base(request, settings),
+        settings=settings,
+    )
+    return RedirectResponse(url=result.authorize_url, status_code=302)
+
+
+@app.get("/auth/sso/callback", include_in_schema=False)
+async def sso_callback_page() -> FileResponse:
+    """
+    OAuth redirect target for Supabase SSO.
+    Completes login only when SSO_ENABLED=true; otherwise /sso/complete returns 403.
+    """
+    if not _SSO_CALLBACK_HTML.is_file():
+        raise HTTPException(status_code=404, detail="SSO callback page not found")
+    return FileResponse(
+        path=_SSO_CALLBACK_HTML,
         media_type="text/html; charset=utf-8",
         headers={"Cache-Control": "no-store"},
     )

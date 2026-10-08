@@ -7,10 +7,7 @@ Welcome. This guide walks you through **every step** from requesting access to u
 - A private Excel add-in that talks to a hosted Wealth Blotter Plus server
 - You register once in a web browser, wait for approval, then sign in from Excel
 - You use **your own** LLM API key (bring your own key / BYOK). That key stays on your computer and is **not** stored on our servers
-
-**What you will never receive (and should never ask for)**
-
-- Database passwords, Supabase keys, Render passwords, or other pilots’ data
+- **Corporate SSO is not available for this pilot yet** (even if you see no SSO buttons — that is expected). Use email/password only.
 
 ---
 
@@ -32,7 +29,7 @@ If any of these are missing, email the host and stop here.
   (Microsoft 365 desktop Excel, or a recent Excel for Mac / Excel for Windows).  
   Excel **in a web browser only** (Excel Online) is not supported for this pilot.
 - About 20–30 minutes for first-time setup
-- Your **own** OpenAI or Anthropic API key (you already know how to get this)
+- Your **own** LLM API keys (you already know how to get this)
 - Permission to install small developer tools once (`Node.js`, `mkcert`) — ask IT if your company locks this down
 
 **Mac vs Windows:** Steps A–C and E–H are the same idea on both.  
@@ -84,30 +81,6 @@ Step D (install tools) and parts of Step G (sideload) differ — follow the subs
 
 1. Open the invitation email from GitHub.
 2. Click **Accept invitation** (you may need a free GitHub account with the same email the host invited).
-
-### C2. Download the code (easiest: ZIP)
-
-If you are not comfortable with `git`:
-
-1. Open the repository page in your browser (the host’s private repo link).
-2. Click the green **Code** button.
-3. Click **Download ZIP**.
-4. Unzip the file (double-click the ZIP).
-5. You should get a folder named something like `wealth_blotter_plus-main`.  
-   Rename it to `wealth_blotter_plus` if you like, and put it somewhere easy to find (for example your Documents folder).
-
-### C3. Or clone with Terminal (optional)
-
-If you already use git:
-
-1. Open **Terminal** (Spotlight: press `Cmd + Space`, type `Terminal`, press Enter).
-2. Copy and paste these lines (replace the URL with the one from GitHub → Code → HTTPS), then press Enter:
-
-```bash
-cd ~/Documents
-git clone https://github.com/YOUR_ORG/wealth_blotter_plus.git
-cd wealth_blotter_plus
-```
 
 ---
 

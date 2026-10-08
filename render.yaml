@@ -40,3 +40,13 @@ services:
         value: "false"
       - key: CONFIDENCE_THRESHOLD
         value: "0.85"
+      # SSO built but disabled — do not enable until IdP is ready.
+      - key: SSO_ENABLED
+        value: "false"
+      - key: SSO_REQUIRE_APPROVAL
+        value: "true"
+      - key: SSO_PROVIDERS
+        value: ""
+      - key: SSO_AUTO_APPROVE_DOMAINS
+        value: ""
+

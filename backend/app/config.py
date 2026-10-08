@@ -51,6 +51,14 @@ class Settings(BaseSettings):
         default=False, alias="REQUIRE_PILOT_APPROVAL"
     )
 
+    # SSO (Supabase OAuth/SAML) — default OFF. Do not enable in prod until IdP is ready.
+    sso_enabled: bool = Field(default=False, alias="SSO_ENABLED")
+    sso_providers: str = Field(default="", alias="SSO_PROVIDERS")
+    sso_auto_approve_domains: str = Field(
+        default="", alias="SSO_AUTO_APPROVE_DOMAINS"
+    )
+    sso_require_approval: bool = Field(default=True, alias="SSO_REQUIRE_APPROVAL")
+
     cors_origins: str = Field(
         default="https://localhost:3000,http://localhost:8501",
         alias="CORS_ORIGINS",
@@ -89,6 +97,22 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def sso_provider_list(self) -> list[str]:
+        return [
+            p.strip().lower()
+            for p in self.sso_providers.split(",")
+            if p.strip()
+        ]
+
+    @property
+    def sso_auto_approve_domain_list(self) -> list[str]:
+        return [
+            d.strip().lower().lstrip("@")
+            for d in self.sso_auto_approve_domains.split(",")
+            if d.strip()
+        ]
 
 
 @lru_cache

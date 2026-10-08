@@ -69,6 +69,12 @@ If onboarding shows a single “API key” field, **skip it** — that is not ou
 | `USE_CLOUD_LLM` | `false` |
 | `CONFIDENCE_THRESHOLD` | `0.85` |
 | `LOG_LEVEL` | `INFO` |
+| `SSO_ENABLED` | `false` (**keep false** for now) |
+| `SSO_REQUIRE_APPROVAL` | `true` |
+| `SSO_PROVIDERS` | leave empty until enabling SSO |
+| `SSO_AUTO_APPROVE_DOMAINS` | leave empty |
+
+SSO code is shipped but **disabled**. Password + `/request-access` remain the only onboarding path until you deliberately enable SSO (see [SSO_EXTENSION_PLAN.md](SSO_EXTENSION_PLAN.md)).
 
 **LLM provider is flexible — do not hardcode OpenAI on Render.**  
 Each pilot picks **OpenAI or Anthropic** in the Excel task pane (BYOK). The server uses `X-LLM-Provider` + `X-LLM-API-Key` per request. You do **not** need `LLM_PROVIDER`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` on Render for the pilot.

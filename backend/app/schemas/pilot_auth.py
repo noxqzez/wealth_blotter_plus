@@ -45,3 +45,23 @@ class MeResponse(BaseModel):
     email: str | None
     role: PilotRole
     approval_status: ApprovalStatus
+
+
+class SsoStatusResponse(BaseModel):
+    """Public SSO capability probe — safe when SSO is disabled."""
+
+    enabled: bool
+    providers: list[str]
+    require_approval: bool
+
+
+class SsoAuthorizeResponse(BaseModel):
+    provider: str
+    authorize_url: str
+    redirect_to: str
+
+
+class SsoCompleteRequest(BaseModel):
+    """Client posts the Supabase access_token after OAuth redirect."""
+
+    access_token: str = Field(..., min_length=20, max_length=8192)

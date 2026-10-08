@@ -23,4 +23,5 @@ async def health() -> dict[str, object]:
         "require_byok": bool(settings.require_byok),
         "require_pilot_approval": bool(settings.require_pilot_approval),
         "dev_auth_bypass": bool(settings.dev_auth_bypass),
+        "sso_enabled": bool(settings.sso_enabled),
     }

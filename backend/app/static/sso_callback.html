@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SSO — Wealth Blotter Plus</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        background: #0c1219;
+        color: #e8eef6;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 1.5rem;
+      }
+      main {
+        width: min(420px, 100%);
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0 0 0.5rem;
+      }
+      p {
+        color: #8b9bb0;
+        line-height: 1.45;
+        font-size: 0.95rem;
+      }
+      .ok {
+        color: #3ecf8e;
+      }
+      .err {
+        color: #f07178;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Signing you in…</h1>
+      <p id="status">Completing SSO.</p>
+    </main>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script>
+      (function () {
+        const statusEl = document.getElementById("status");
+        function setStatus(msg, kind) {
+          statusEl.textContent = msg;
+          statusEl.className = kind || "";
+        }
+
+        function paramsFromLocation() {
+          const out = {};
+          const hash = (window.location.hash || "").replace(/^#/, "");
+          const search = (window.location.search || "").replace(/^\?/, "");
+          [hash, search].forEach(function (part) {
+            part.split("&").forEach(function (pair) {
+              if (!pair) return;
+              const i = pair.indexOf("=");
+              const k = decodeURIComponent(i >= 0 ? pair.slice(0, i) : pair);
+              const v = decodeURIComponent(i >= 0 ? pair.slice(i + 1) : "");
+              if (k) out[k] = v;
+            });
+          });
+          return out;
+        }
+
+        function notifyParent(payload) {
+          try {
+            if (
+              window.Office &&
+              Office.context &&
+              Office.context.ui &&
+              Office.context.ui.messageParent
+            ) {
+              Office.context.ui.messageParent(JSON.stringify(payload));
+              return;
+            }
+          } catch (_e) {
+            /* not in Office dialog */
+          }
+          try {
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage(
+                { source: "wbp-sso", payload: payload },
+                window.location.origin
+              );
+            }
+          } catch (_e2) {
+            /* ignore */
+          }
+        }
+
+        async function run() {
+          const params = paramsFromLocation();
+          const accessToken = params.access_token || "";
+          const err = params.error_description || params.error || "";
+          if (err) {
+            setStatus("SSO failed: " + err, "err");
+            notifyParent({ ok: false, error: err });
+            return;
+          }
+          if (!accessToken) {
+            setStatus(
+              "No access token in redirect. SSO may be disabled, or the IdP redirect is misconfigured.",
+              "err"
+            );
+            notifyParent({ ok: false, error: "missing_access_token" });
+            return;
+          }
+
+          try {
+            const res = await fetch("/api/v1/auth/sso/complete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ access_token: accessToken }),
+            });
+            let body = {};
+            try {
+              body = await res.json();
+            } catch (_e) {
+              body = {};
+            }
+            if (!res.ok) {
+              const detail = body.detail;
+              let msg = "SSO sign-in failed.";
+              if (typeof detail === "string") msg = detail;
+              else if (detail && detail.message) msg = detail.message;
+              setStatus(msg, "err");
+              notifyParent({ ok: false, error: msg, detail: detail || null });
+              return;
+            }
+            setStatus(
+              "Signed in as " +
+                (body.email || "advisor") +
+                ". You can close this window and return to Excel.",
+              "ok"
+            );
+            notifyParent({
+              ok: true,
+              access_token: body.access_token,
+              email: body.email,
+            });
+          } catch (_err) {
+            setStatus("Network error completing SSO.", "err");
+            notifyParent({ ok: false, error: "network_error" });
+          }
+        }
+
+        function start() {
+          if (window.Office && typeof Office.onReady === "function") {
+            Office.onReady(function () {
+              run();
+            });
+            return;
+          }
+          run();
+        }
+        start();
+      })();
+    </script>
+  </body>
+</html>

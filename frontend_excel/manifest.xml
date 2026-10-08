@@ -15,6 +15,9 @@
   <SupportUrl DefaultValue="https://localhost:3000"/>
   <AppDomains>
     <AppDomain>https://localhost:3000</AppDomain>
+    <!-- Required when Excel SSO dialog opens the hosted API / Supabase OAuth -->
+    <AppDomain>https://wealth-blotter-plus.onrender.com</AppDomain>
+    <AppDomain>https://jszxqpftfoglhtwmtevq.supabase.co</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>

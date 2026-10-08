@@ -117,6 +117,33 @@
         color: var(--muted);
         line-height: 1.45;
       }
+      .sso-box {
+        display: none;
+        margin-top: 1.25rem;
+        padding: 1rem 1.25rem;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(20, 28, 39, 0.5);
+      }
+      .sso-box.visible {
+        display: block;
+      }
+      .sso-box h2 {
+        margin: 0 0 0.5rem;
+        font-size: 0.95rem;
+      }
+      .sso-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+      }
+      .sso-actions button {
+        margin-top: 0;
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
     </style>
   </head>
   <body>
@@ -165,6 +192,14 @@
         <button id="submitBtn" type="submit">Request access</button>
       </form>
       <p id="status" class="status" role="status" aria-live="polite"></p>
+      <section id="ssoBox" class="sso-box" aria-label="SSO sign-in" hidden>
+        <h2>Corporate SSO</h2>
+        <p class="lead" style="margin: 0">
+          Optional — only shown when the host enables SSO. Password signup above
+          remains the default.
+        </p>
+        <div id="ssoActions" class="sso-actions"></div>
+      </section>
       <p class="note">
         After approval, use the Excel task pane to sign in with the same email
         and password, and paste your own LLM API key (BYOK). See
@@ -176,6 +211,51 @@
         const form = document.getElementById("requestForm");
         const statusEl = document.getElementById("status");
         const submitBtn = document.getElementById("submitBtn");
+        const ssoBox = document.getElementById("ssoBox");
+        const ssoActions = document.getElementById("ssoActions");
+
+        async function loadSsoStatus() {
+          try {
+            const res = await fetch("/api/v1/auth/sso/status");
+            if (!res.ok) return;
+            const body = await res.json();
+            if (!body.enabled || !body.providers || !body.providers.length) {
+              return;
+            }
+            ssoBox.hidden = false;
+            ssoBox.classList.add("visible");
+            body.providers.forEach(function (provider) {
+              const btn = document.createElement("button");
+              btn.type = "button";
+              btn.textContent = "Continue with " + provider;
+              btn.addEventListener("click", async function () {
+                setStatus("Starting SSO…");
+                try {
+                  const a = await fetch(
+                    "/api/v1/auth/sso/authorize?provider=" +
+                      encodeURIComponent(provider)
+                  );
+                  const data = await a.json();
+                  if (!a.ok) {
+                    const d = data.detail;
+                    setStatus(
+                      (d && d.message) || "SSO is not available.",
+                      "err"
+                    );
+                    return;
+                  }
+                  window.location.href = data.authorize_url;
+                } catch (_e) {
+                  setStatus("Could not start SSO.", "err");
+                }
+              });
+              ssoActions.appendChild(btn);
+            });
+          } catch (_e) {
+            /* SSO stays hidden */
+          }
+        }
+        loadSsoStatus();
 
         function setStatus(message, kind) {
           statusEl.textContent = message || "";

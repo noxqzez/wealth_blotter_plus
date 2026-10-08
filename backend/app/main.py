@@ -167,6 +167,45 @@ async def rules_engine_exception_handler(
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    """Return JSON on unexpected errors so the request-access page can show a hint."""
+    from backend.app.core.supabase import SupabaseNotConfiguredError
+
+    if isinstance(exc, SupabaseNotConfiguredError):
+        logger.error("supabase_not_configured", path=request.url.path, error=str(exc))
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": {
+                    "error_code": "WBP-AUTH-REGISTER",
+                    "message": (
+                        "Supabase is not configured on this server. "
+                        "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on Render."
+                    ),
+                }
+            },
+        )
+    logger.exception(
+        "unhandled_exception",
+        path=request.url.path,
+        error_type=type(exc).__name__,
+        error=str(exc),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": {
+                "error_code": "WBP-INTERNAL",
+                "message": f"Internal error ({type(exc).__name__}). Check Render logs.",
+            }
+        },
+    )
+
+
 app.include_router(api_v1_router, prefix="/api/v1")
 
 

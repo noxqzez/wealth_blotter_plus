@@ -89,8 +89,24 @@ def require_approved_profile(advisor_id: UUID) -> dict[str, Any]:
 
 def register_pilot(*, email: str, password: str) -> RegisterResponse:
     """Create Auth user + PENDING profiles row. Does not return a JWT."""
+    from backend.app.core.supabase import SupabaseNotConfiguredError
+
     email_norm = email.strip().lower()
-    client = get_service_supabase()
+    try:
+        client = get_service_supabase()
+    except SupabaseNotConfiguredError as exc:
+        logger.error("pilot_register_supabase_not_configured", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": WBP_AUTH_REGISTER,
+                "message": (
+                    "Server auth is not configured (missing Supabase URL/service role). "
+                    "Check Render environment variables."
+                ),
+            },
+        ) from exc
+
     try:
         created = client.auth.admin.create_user(
             {
@@ -123,17 +139,36 @@ def register_pilot(*, email: str, password: str) -> RegisterResponse:
         )
     advisor_id = UUID(str(user_id))
     now = _now_iso()
-    client.table("profiles").upsert(
-        {
-            "id": str(advisor_id),
-            "email": email_norm,
-            "role": "advisor",
-            "approval_status": "PENDING_APPROVAL",
-            "created_at": now,
-            "updated_at": now,
-        },
-        on_conflict="id",
-    ).execute()
+    try:
+        client.table("profiles").upsert(
+            {
+                "id": str(advisor_id),
+                "email": email_norm,
+                "role": "advisor",
+                "approval_status": "PENDING_APPROVAL",
+                "created_at": now,
+                "updated_at": now,
+            },
+            on_conflict="id",
+        ).execute()
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "pilot_register_profile_failed",
+            error=str(exc),
+            advisor_id=str(advisor_id),
+            email=email_norm,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": WBP_AUTH_REGISTER,
+                "message": (
+                    "Auth user created but profiles table write failed. "
+                    "Apply migration_pilot_profiles.sql in Supabase, then retry "
+                    "(or ask an admin to insert your profiles row)."
+                ),
+            },
+        ) from exc
     logger.info("pilot_registered", advisor_id=str(advisor_id), email=email_norm)
     return RegisterResponse(
         advisor_id=advisor_id,

@@ -224,8 +224,20 @@
               let msg = "Registration failed.";
               if (typeof detail === "string") {
                 msg = detail;
+              } else if (Array.isArray(detail) && detail.length) {
+                msg = detail
+                  .map(function (item) {
+                    return (item && item.msg) || JSON.stringify(item);
+                  })
+                  .join(" ");
               } else if (detail && typeof detail === "object") {
                 msg = detail.message || detail.error_code || msg;
+              } else if (typeof body === "string" && body.trim()) {
+                msg = body.trim();
+              } else if (res.status >= 500) {
+                msg =
+                  "Server error during registration. Check Render env vars " +
+                  "(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) and /api/v1/health.";
               }
               setStatus(msg, "err");
               return;

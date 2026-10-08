@@ -38,7 +38,20 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ## C. Values for Render (dashboard Environment — not in git)
 
-Create a Render **Web Service** from this repo (Docker). Set:
+### Creating the service (`/web/new`)
+
+On [Render’s new Web Service](https://dashboard.render.com/web/new) onboarding you mainly pick:
+
+1. **GitHub repo** → `wealth_blotter_plus`
+2. **Language / runtime** → **Docker** (uses root `Dockerfile`)
+3. **Branch** → `main`
+4. **Name / region / plan**
+
+You often **won’t** see the full env list on that first screen. Finish creating the service, then open it → **Environment** and add Key/Value rows there (add one variable at a time).
+
+If onboarding shows a single “API key” field, **skip it** — that is not our app config. Our secrets are normal env vars (`SUPABASE_*`, etc.).
+
+### Environment variables (after the service exists)
 
 | Variable | Value |
 |----------|--------|
@@ -53,8 +66,13 @@ Create a Render **Web Service** from this repo (Docker). Set:
 | `CORS_ORIGINS` | Excel origin(s), e.g. `https://localhost:3000` (and any hosted task-pane URL) |
 | `JWT_AUDIENCE` | `authenticated` |
 | `JWT_ALGORITHM` | `HS256` |
+| `USE_CLOUD_LLM` | `false` |
+| `CONFIDENCE_THRESHOLD` | `0.85` |
+| `LOG_LEVEL` | `INFO` |
 
-**Do not set** pilot LLM keys on Render.  
+**LLM provider is flexible — do not hardcode OpenAI on Render.**  
+Each pilot picks **OpenAI or Anthropic** in the Excel task pane (BYOK). The server uses `X-LLM-Provider` + `X-LLM-API-Key` per request. You do **not** need `LLM_PROVIDER`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` on Render for the pilot.
+
 **Do not** put a Render API key in this app’s `.env`.
 
 Health check path: `/api/v1/health`

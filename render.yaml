@@ -34,8 +34,8 @@ services:
         value: HS256
       - key: JWT_AUDIENCE
         value: authenticated
-      - key: LLM_PROVIDER
-        value: openai
+      # LLM provider is chosen per request (Excel BYOK: openai | anthropic).
+      # Do not put pilot API keys here. Server LLM_PROVIDER is unused in pilot mode.
       - key: USE_CLOUD_LLM
         value: "false"
       - key: CONFIDENCE_THRESHOLD

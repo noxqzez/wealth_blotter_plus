@@ -16,20 +16,23 @@ def build_llm(
     """
     Build a CrewAI LLM.
 
-    Production / pilot: uses request-scoped BYOK (``X-LLM-API-Key``).
-    Local development: Ollama when no BYOK present.
+    Production / pilot: request-scoped BYOK
+    (``X-LLM-API-Key`` + ``X-LLM-Provider`` = openai | anthropic).
+    Local development: Ollama (or ``LLM_PROVIDER`` cloud fallback) when no BYOK.
     """
     cfg = settings or get_settings()
     temp = cfg.llm_temperature if temperature is None else temperature
     byok = get_byok()
 
     if byok and byok.api_key:
-        if byok.provider == "anthropic":
+        provider = (byok.provider or "openai").strip().lower()
+        if provider == "anthropic":
             return LLM(
                 model="anthropic/claude-sonnet-4-20250514",
                 api_key=byok.api_key,
                 temperature=temp,
             )
+        # Default BYOK path: OpenAI-compatible (incl. openai)
         return LLM(
             model="openai/gpt-4o-mini",
             api_key=byok.api_key,

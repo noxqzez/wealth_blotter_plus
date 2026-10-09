@@ -104,6 +104,25 @@ export function logoutPilot(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+/**
+ * Clear JWT and surface the Pilot access panel when the API returns 401.
+ * Returns true when the status was handled as unauthorized.
+ */
+export function handleUnauthorized(status: number): boolean {
+  if (status !== 401) return false;
+  logoutPilot();
+  const statusEl = document.getElementById("pilotAuthStatus");
+  if (statusEl) {
+    statusEl.textContent = "Session expired — sign in again.";
+    statusEl.classList.add("error");
+  }
+  document.getElementById("pilotAuth")?.scrollIntoView({
+    behavior: "smooth",
+    block: "nearest",
+  });
+  return true;
+}
+
 export function saveByok(apiKey: string, provider: string): void {
   if (apiKey.trim()) localStorage.setItem(LLM_KEY, apiKey.trim());
   else localStorage.removeItem(LLM_KEY);
@@ -182,7 +201,7 @@ function openSsoDialog(
                 };
                 error?: { message?: string };
               }) => void,
-            );
+            ) => void;
           };
         };
       };

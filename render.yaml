@@ -2,6 +2,9 @@
 # Never commit secrets. Do not put pilot LLM keys here.
 #
 # https://render.com/docs/blueprint-spec
+#
+# After first deploy, set API CORS_ORIGINS to include the Static Site origin, e.g.:
+#   https://localhost:3000,https://wealth-blotter-plus-excel.onrender.com
 
 services:
   - type: web
@@ -49,4 +52,15 @@ services:
         value: ""
       - key: SSO_AUTO_APPROVE_DOMAINS
         value: ""
+
+  # Excel task pane (Office Add-in SourceLocation). Pilots sideload manifest.pilot.xml once.
+  - type: web
+    name: wealth-blotter-plus-excel
+    runtime: static
+    rootDir: frontend_excel
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://wealth-blotter-plus.onrender.com
 

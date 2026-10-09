@@ -3,7 +3,7 @@
  */
 
 import DOMPurify from "dompurify";
-import { authHeaders, wirePilotAuthPanel } from "./auth";
+import { authHeaders, handleUnauthorized, wirePilotAuthPanel } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -246,6 +246,9 @@ function formatApiError(
   fallbackCode: string,
   correlationId: string,
 ): string {
+  if (httpStatus === 401) {
+    return `Session expired — sign in again.\nRef: ${fallbackCode} · ${shortRef(correlationId)}`;
+  }
   try {
     const parsed = JSON.parse(text) as { detail?: unknown };
     const d = parsed.detail;
@@ -742,6 +745,9 @@ async function postCopilot(
       signal: controller.signal,
     });
     const text = await res.text();
+    if (res.status === 401) {
+      handleUnauthorized(401);
+    }
     return { ok: res.ok, status: res.status, text };
   } finally {
     window.clearTimeout(timer);

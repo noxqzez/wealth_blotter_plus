@@ -22,7 +22,10 @@ if (!https) {
 
 // Office Add-ins (Mac WebView) require a cert trusted by the system keychain.
 // Proxy /api → FastAPI so the HTTPS task pane never calls plain http:// (mixed content).
+// Production: `npm run build` → dist/ for Render Static Site; bake VITE_API_BASE_URL.
 export default defineConfig({
+  base: "/",
+  publicDir: "public",
   server: {
     port: 3000,
     strictPort: true,
@@ -37,5 +40,6 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: true,
+    emptyOutDir: true,
   },
 });

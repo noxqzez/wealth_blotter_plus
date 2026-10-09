@@ -7,7 +7,7 @@
  */
 
 import DOMPurify from "dompurify";
-import { authHeaders } from "./auth";
+import { authHeaders, handleUnauthorized } from "./auth";
 
 const PARAMS_SHEET = "scenario_params";
 /** Legacy name from early WF-02; still readable so old workbooks keep working. */
@@ -174,6 +174,9 @@ function formatApiError(
   fallbackCode: string,
   correlationId: string,
 ): string {
+  if (httpStatus === 401) {
+    return `Session expired — sign in again.\nRef: ${fallbackCode} · ${shortRef(correlationId)}`;
+  }
   try {
     const parsed = JSON.parse(text) as { detail?: unknown };
     const d = parsed.detail;
@@ -360,7 +363,7 @@ async function findSheet(
 
 async function writeParamsSheet(
   params: ScenarioParams,
-  scenarioRunId: string,
+  _scenarioRunId: string,
 ): Promise<void> {
   const map = fieldMap(params);
   await Excel.run(async (context) => {
@@ -441,7 +444,7 @@ function qtyNumberFormat(assetClass?: string): string {
 
 async function writeRebalancedPortfolio(
   body: RunBody,
-  scenarioRunId: string,
+  _scenarioRunId: string,
 ): Promise<void> {
   const positions = body.opti_folio ?? [];
   const metricKeys: (keyof Metrics)[] = [
@@ -525,7 +528,7 @@ async function writeRebalancedPortfolio(
   });
 }
 
-async function writeOrdBlotter(body: RunBody, scenarioRunId: string): Promise<void> {
+async function writeOrdBlotter(body: RunBody, _scenarioRunId: string): Promise<void> {
   const trades = [...(body.staged_trades ?? [])].sort((a, b) => {
     const aw = a.to_weight_pct ?? -Infinity;
     const bw = b.to_weight_pct ?? -Infinity;
@@ -602,6 +605,9 @@ async function postJson(
       signal: controller.signal,
     });
     const text = await res.text();
+    if (res.status === 401) {
+      handleUnauthorized(401);
+    }
     return { ok: res.ok, status: res.status, text };
   } finally {
     window.clearTimeout(timer);
@@ -843,6 +849,9 @@ export function initScenario(opts: {
         body: JSON.stringify({ scenario_run_id: runId }),
         signal: controller.signal,
       });
+      if (res.status === 401) {
+        handleUnauthorized(401);
+      }
       if (!res.ok) {
         const text = await res.text();
         opts.render(formatApiError(res.status, text, ScenarioError.PDF, correlationId));

@@ -80,10 +80,10 @@ See [backend/app/db/RAG_POC.md](backend/app/db/RAG_POC.md).
 
 **Share with pilots**
 
-1. Signup: `https://wealth-blotter-plus.onrender.com/request-access` (or your Render URL)
-2. GitHub repo invite
-3. Tell them to follow the non-technical walkthrough: **[PILOT.md](PILOT.md)**  
-   (request access → approval → download repo → Mac tools → Excel sideload → BYOK → sign in)
+1. Signup: `https://wealth-blotter-plus.onrender.com/request-access` (or your API Render URL)
+2. Manifest: `https://wealth-blotter-plus-excel.onrender.com/manifest.pilot.xml` (or your Static Site URL)
+3. Tell them to follow **[PILOT.md](PILOT.md)**  
+   (request access → approval → sideload manifest once → BYOK + sign in in Excel)
 
 Host/operator Render + Supabase checklist: [docs/PILOT_PHASE1.md](docs/PILOT_PHASE1.md).
 

@@ -1,5 +1,8 @@
 # Phase 1 Pilot — what you configure & what you give pilots
 
+**Deploy reminder:** ship production / pilot access from Git branch **`main` only**
+(not `develop/next`). Security + smoke checklist: [DEPLOY_PILOT.md](DEPLOY_PILOT.md).
+
 ## A. Apply database migration (your Supabase project)
 
 In the Supabase SQL editor, run:

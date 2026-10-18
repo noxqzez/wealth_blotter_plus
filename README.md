@@ -114,6 +114,7 @@ Eval / A-B pack: [docs/PAST_ANALOGUE_EVAL.md](docs/PAST_ANALOGUE_EVAL.md).
    (request access → approval → sideload manifest once → primary LLM + optional secondary → sign in in Excel)
 
 Host/operator Render + Supabase checklist: [docs/PILOT_PHASE1.md](docs/PILOT_PHASE1.md).  
+**Production cutover:** always deploy from Git **`main`** — see [docs/DEPLOY_PILOT.md](docs/DEPLOY_PILOT.md).  
 Approve + welcome email UI: `https://<api>.onrender.com/admin/pilots` (needs `ADMIN_API_KEY` + Resend).
 
 ## Agent & security docs

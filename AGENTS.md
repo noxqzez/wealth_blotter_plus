@@ -11,6 +11,7 @@ Root coding standards also live in [`.cursorrules`](.cursorrules).
 - [Workspace Scope](rules/01_workspace_scope.md)
 - [Core Stack & Architecture](rules/02_wealth_blotter_core.md)
 - [Security & Secrets](rules/03_security_secrets.md)
+- [Pilot deploy](rules/07_deploy_pilot.md) — production from **`main` only**; see [docs/DEPLOY_PILOT.md](docs/DEPLOY_PILOT.md)
 
 ## Language-specific rules
 

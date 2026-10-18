@@ -1,0 +1,23 @@
+---
+description: Pilot production deploy — always use main and enforce security gates
+alwaysApply: true
+---
+
+# Pilot deploy (mandatory)
+
+When the user asks to deploy, ship to Render/production, or cut over for pilot
+access — even if they forget to say which branch:
+
+1. **Deploy from Git branch `main` only.** Do not deploy `develop/next` or other
+   experiment branches unless they explicitly ask for a non-prod preview.
+2. Follow **[docs/DEPLOY_PILOT.md](docs/DEPLOY_PILOT.md)** end-to-end.
+3. Before go-live, verify on the **API** service:
+   - `ENVIRONMENT=production`
+   - `DEV_AUTH_BYPASS=false`
+   - `REQUIRE_PILOT_APPROVAL=true`
+   - `REQUIRE_BYOK=true` (recommended)
+   - Tight `CORS_ORIGINS` (no `*`)
+   - Service role / admin keys server-only
+   - RAG: private `research-documents` bucket; upload kill switch + rate/page quotas
+4. After deploy: health check + one Excel golden-path smoke (import → scenario → blotter).
+5. Remind: Copilot sessions are in-memory (lost on restart); DB data in Supabase is durable.

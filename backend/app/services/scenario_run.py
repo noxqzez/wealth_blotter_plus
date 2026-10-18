@@ -109,12 +109,13 @@ from backend.app.services.scenario_performance import (
     PerformanceBuildError,
     build_base_vs_opti_performance,
 )
-from backend.app.services.past_analogue_config import (
+from backend.app.services.past_analogue import (
     past_analogue_apply_enabled,
     past_analogue_enabled,
     past_analogue_knobs,
+    run_past_analogue_pipeline,
 )
-from backend.app.services.past_analogue import run_past_analogue_pipeline
+from backend.app.services.ticker_normalize import normalize_ticker as _normalize_ticker
 
 logger = structlog.get_logger(__name__)
 
@@ -205,21 +206,6 @@ def _load_config_row(key: str) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("scenario_config_load_failed", key=key, error=str(exc))
     return _load_json_seed(f"{key}.json")
-
-
-def _normalize_ticker(raw: str) -> str:
-    t = str(raw or "").strip().upper()
-    if not t:
-        return t
-    if t in {"CASH", "CASH_USD", "USD", "HKD"}:
-        return t if t != "CASH_USD" else "USD"
-    # Crypto bases → Yahoo form used by history/optimizer
-    base = t.removesuffix("-USD").removesuffix("USD")
-    if base in {"BTC", "ETH", "DOGE", "XRP", "SOL"} and not t.endswith("-USD"):
-        return f"{base}-USD"
-    if t.endswith("-USD") and base in {"BTC", "ETH", "DOGE", "XRP", "SOL"}:
-        return f"{base}-USD"
-    return t
 
 
 def _position_maps(

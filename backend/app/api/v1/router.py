@@ -11,7 +11,6 @@ from backend.app.api.v1 import (
     documents,
     health,
     ingest,
-    portfolio,
     portfolios,
     scenarios,
 )
@@ -24,7 +23,7 @@ api_v1_router.include_router(
 )
 api_v1_router.include_router(ingest.router, prefix="/ingest", tags=["ingest"])
 api_v1_router.include_router(advisory.router, prefix="/advisory", tags=["advisory"])
-api_v1_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
+# Deprecated POST /portfolio/update removed — use /portfolios/validate-import + build-base.
 api_v1_router.include_router(
     portfolios.router, prefix="/portfolios", tags=["portfolios"]
 )

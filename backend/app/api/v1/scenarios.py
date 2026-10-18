@@ -14,17 +14,16 @@ import time
 from io import BytesIO
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import StreamingResponse
 
-from backend.app.api.http_util import correlation_id, http_server_error
+from backend.app.api.http_util import correlation_id, http_error, http_server_error
 from backend.app.core.error_codes import (
     WBP_SCENARIO_PARAMS,
     WBP_SCENARIO_PARSE,
     WBP_SCENARIO_PDF,
     WBP_SCENARIO_RUN,
     WBP_SCENARIO_TIMEOUT,
-    error_payload,
 )
 from backend.app.core.rules_engine import RulesEngine, get_rules_engine
 from backend.app.core.security import AuthContext, get_current_user
@@ -54,40 +53,25 @@ from backend.app.services.usage_telemetry import record_usage_metric
 router = APIRouter()
 
 
-def _http_from_service(
-    exc: ScenarioServiceError,
-    *,
-    cid: str,
-) -> HTTPException:
-    support = exc.http_status >= 500
-    return HTTPException(
+def _http_from_service(exc: ScenarioServiceError, *, cid: str):
+    return http_error(
         status_code=exc.http_status,
-        detail=error_payload(
-            error_code=exc.error_code,
-            message=str(exc),
-            correlation_id=cid or None,
-            support=support,
-        ),
+        error_code=exc.error_code,
+        message=str(exc),
+        correlation_id=cid,
+        support=exc.http_status >= 500,
     )
 
 
-def _http_timeout(
-    *,
-    operation: str,
-    timeout_seconds: int,
-    cid: str,
-) -> HTTPException:
-    return HTTPException(
+def _http_timeout(*, operation: str, timeout_seconds: int, cid: str):
+    return http_error(
         status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-        detail=error_payload(
-            error_code=WBP_SCENARIO_TIMEOUT,
-            message=(
-                f"Scenario {operation} exceeded {timeout_seconds}s timeout "
-                f"(see configs.scenario_wf02 / WF-02 locked timeouts)"
-            ),
-            correlation_id=cid or None,
-            support=False,
+        error_code=WBP_SCENARIO_TIMEOUT,
+        message=(
+            f"Scenario {operation} exceeded {timeout_seconds}s timeout "
+            f"(see configs.scenario_wf02 / WF-02 locked timeouts)"
         ),
+        correlation_id=cid,
     )
 
 

@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from backend.app.services.scenario_run import (
-    _build_staged_trades,
-    _normalize_ticker,
-)
+from backend.app.services.scenario_run import _build_staged_trades
 from backend.app.services.scenario_talking_points import _talking_points_from_delta
+from backend.app.services.ticker_normalize import normalize_ticker
 
 
 def test_normalize_crypto_ticker() -> None:
-    assert _normalize_ticker("btc") == "BTC-USD"
-    assert _normalize_ticker("BTC-USD") == "BTC-USD"
-    assert _normalize_ticker("AAPL") == "AAPL"
+    assert normalize_ticker("btc") == "BTC-USD"
+    assert normalize_ticker("BTC-USD") == "BTC-USD"
+    assert normalize_ticker("AAPL") == "AAPL"
 
 
 def test_talking_points_from_delta() -> None:

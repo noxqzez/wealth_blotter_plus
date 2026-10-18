@@ -63,7 +63,7 @@ must not be implemented by editing agents from this workstream.
 ## Manual test checklist
 
 1. [ ] Migration applied; sample seed rows present
-2. [ ] `POST /portfolio/update` still succeeds; new `audit_events` row appears
+2. [ ] `POST /portfolios/validate-import` (or build-base) still succeeds; new `audit_events` row appears
 3. [ ] Streamlit chat answers for seed log `aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001`
 4. [ ] Citations include `audit_event_id` and `rule_id` and/or `config_key`+`version`
 5. [ ] Export downloads JSON with messages + traces

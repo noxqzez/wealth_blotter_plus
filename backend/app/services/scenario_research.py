@@ -20,7 +20,8 @@ from backend.app.schemas.scenario import (
     StrategyAssetView,
     StrategyView,
 )
-from backend.app.services.market_providers import fetch_news
+from backend.app.services.market_data import fetch_news
+from backend.app.services.ticker_normalize import normalize_ticker as _normalize_ticker
 from backend.app.services.rag_retrieve import retrieve_research_chunks
 from backend.app.services.coin_temperature import (
     coin_temperature_scale,
@@ -102,16 +103,6 @@ def client_tone_phrase(tone: str) -> str:
         "riskon": "risk on tone",
         "neutral": "neutral tone",
     }.get(t, "neutral tone")
-
-
-def _normalize_ticker(raw: str) -> str:
-    t = str(raw or "").strip().upper()
-    if t in _CASH:
-        return t
-    base = t.removesuffix("-USD")
-    if base in {"BTC", "ETH", "DOGE", "XRP", "SOL"} and not t.endswith("-USD"):
-        return f"{base}-USD"
-    return t
 
 
 def _asset_class_for(ticker: str, fallback: str | None = None) -> str:

@@ -59,47 +59,6 @@ class AgentAdvisorDiffCreate(BaseModel):
     notes: str | None = None
 
 
-# --- MVP UPDATE PORTFOLIO ----------------------------------------------------
-
-
-class PortfolioPasteRow(BaseModel):
-    """Legacy paste row for deprecated POST /portfolio/update."""
-
-    client_alias: str = Field(..., min_length=1, max_length=128)
-    ticker: str = Field(..., min_length=1, max_length=32)
-    quantity: float = Field(..., ge=0)
-    asset_class: str = Field(..., min_length=1, max_length=32)
-    currency: str | None = Field(default=None, max_length=8)
-
-
-class PortfolioUpdateRequest(BaseModel):
-    rows: list[PortfolioPasteRow] = Field(..., min_length=1)
-
-
-class PortfolioPositionRow(BaseModel):
-    client_alias: str
-    portfolio_id: UUID
-    ticker: str
-    asset_class: str
-    quantity: float
-    short_name: str
-    spot_price: float
-    notional_value: float
-    current_weight_pct: float
-    valuation_timestamp: str
-    currency: str = "USD"
-    price_status: str = "VALID"
-    pos_id: UUID = Field(
-        ...,
-        description="Stable PosID (portfolio_positions.id) for audit / Excel reference",
-    )
-
-
-class PortfolioUpdateResponse(BaseModel):
-    clients_updated: list[str]
-    positions: list[PortfolioPositionRow]
-
-
 # --- Market EOD history (equity + crypto; scenario audit) ---------------------
 
 

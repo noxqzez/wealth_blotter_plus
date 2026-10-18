@@ -34,7 +34,7 @@ Assumptions (pragmatic for UAT; keep math correct within these):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from typing import Any, Mapping, Sequence
 
 import cvxpy as cp
@@ -42,163 +42,39 @@ import numpy as np
 import pandas as pd
 from sklearn.covariance import LedoitWolf
 
-from backend.app.core.error_codes import WBP_SCENARIO_COMPLIANCE, WBP_SCENARIO_RUN
 from backend.app.schemas.scenario import StrategyView
+from backend.app.services.scenario_optimizer_compliance import (
+    _coerce_constraints,
+    _constraints_to_dict,
+    constraints_from_trading_rules,
+    evaluate_weight_compliance,
+    tighten_constraints,
+)
+from backend.app.services.scenario_optimizer_types import (
+    APPROVED_CRYPTO_BASES,
+    APPROVED_CRYPTO_TICKERS,
+    CASH_COV_EPSILON,
+    CASH_TICKER_ALIASES,
+    DEFAULT_RISK_AVERSION,
+    DEFAULT_TAU,
+    MAX_VIEW_OMEGA,
+    MIN_VIEW_OMEGA,
+    QUALITATIVE_VIEW_TILTS,
+    TRADING_DAYS_PER_YEAR,
+    ComplianceUnresolvedError,
+    ComplianceViolation,
+    OptimizeConstraints,
+    ScenarioOptimizerError,
+    _is_approved_crypto,
+    _is_cash_ticker,
+    _normalize_asset_class,
+    _normalize_ticker,
+    normalize_rule_category,
+)
 from backend.app.services.trading_rules_policy import (
-    DEFAULT_APPROVED_CRYPTO_BASES,
     approved_crypto_bases_from_rules,
-    effective_max_single_weight,
-    effective_min_cash_weight,
     trading_rules_fold_notes,
 )
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# Defaults only — live universe comes from trading_rules PORTFOLIO
-# ``approved_crypto_universe`` (see trading_rules_policy).
-APPROVED_CRYPTO_BASES: frozenset[str] = frozenset(DEFAULT_APPROVED_CRYPTO_BASES)
-APPROVED_CRYPTO_TICKERS: frozenset[str] = frozenset(
-    {f"{b}-USD" for b in APPROVED_CRYPTO_BASES}
-)
-
-CASH_TICKER_ALIASES: frozenset[str] = frozenset({"CASH", "CASH_USD", "USD"})
-
-TRADING_DAYS_PER_YEAR: int = 252
-DEFAULT_RISK_AVERSION: float = 2.5
-DEFAULT_TAU: float = 0.05
-CASH_COV_EPSILON: float = 1e-12
-MIN_VIEW_OMEGA: float = 1e-6
-MAX_VIEW_OMEGA: float = 1e2
-
-# Annualized absolute-return tilts added to the prior for qualitative views.
-# Keys are normalized tokens found in ``final_view`` / ``view`` text.
-QUALITATIVE_VIEW_TILTS: dict[str, float] = {
-    "strongly_bullish": 0.08,
-    "very_bullish": 0.08,
-    "bullish": 0.04,
-    "overweight": 0.03,
-    "neutral_to_moderately_positive": 0.015,
-    "moderately_positive": 0.015,
-    "positive": 0.02,
-    "neutral": 0.0,
-    "hold": 0.0,
-    "mixed": 0.0,
-    "neutral_to_cautious": -0.01,
-    "cautious": -0.015,
-    "negative": -0.02,
-    "underweight": -0.03,
-    "bearish": -0.04,
-    "very_bearish": -0.08,
-    "strongly_bearish": -0.08,
-}
-
-RULE_PORTFOLIO = "PORTFOLIO"
-RULE_TRADE = "TRADE"
-RULE_CLIENT = "CLIENT"
-RULE_TECHNICAL = "TECHNICAL"
-# Legacy aliases still accepted when reading trading_rules rows.
-_RULE_CATEGORY_ALIASES: dict[str, str] = {
-    "POSITION_LIMIT": RULE_PORTFOLIO,
-    "CONCENTRATION": RULE_PORTFOLIO,
-    "WEIGHT": RULE_PORTFOLIO,
-    "TRADING_RESTRICTION": RULE_TRADE,
-    "CLIENT_RESTRICTION": RULE_CLIENT,
-    "TECHNICAL": RULE_TECHNICAL,
-    "PORTFOLIO": RULE_PORTFOLIO,
-    "TRADE": RULE_TRADE,
-    "CLIENT": RULE_CLIENT,
-}
-
-
-def normalize_rule_category(raw: str) -> str:
-    """Map legacy / free-text categories onto the fixed taxonomy."""
-    key = str(raw or "").strip().upper().replace(" ", "_")
-    return _RULE_CATEGORY_ALIASES.get(key, key)
-
-TIGHTEN_CRYPTO_FACTOR: float = 0.8
-TIGHTEN_SINGLE_FACTOR: float = 0.85
-TIGHTEN_CASH_STEP: float = 0.01
-
-
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
-
-
-class ScenarioOptimizerError(Exception):
-    """Structured optimizer failure (no bare except in this module)."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        error_code: str = WBP_SCENARIO_RUN,
-        details: Mapping[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.message = message
-        self.error_code = error_code
-        self.details: dict[str, Any] = dict(details or {})
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "error_code": self.error_code,
-            "message": self.message,
-            "details": self.details,
-        }
-
-
-class ComplianceUnresolvedError(ScenarioOptimizerError):
-    """Raised when the compliance re-solve loop exhausts without a feasible book."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        details: Mapping[str, Any] | None = None,
-    ) -> None:
-        super().__init__(
-            message,
-            error_code=WBP_SCENARIO_COMPLIANCE,
-            details=details,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Constraint / result shapes
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class OptimizeConstraints:
-    """Long-only MV constraints (weights are fractions summing to 1)."""
-
-    min_cash_weight: float | None = None
-    max_single_weight: float | None = None  # any non-cash name; None = no global cap
-    max_crypto_weight: float | None = None
-    max_crypto_single_weight: float | None = None  # per CRYPTO name (POSITION_LIMIT)
-    restricted_tickers: set[str] = field(default_factory=set)
-    cash_tickers: set[str] = field(default_factory=set)
-    crypto_tickers: set[str] = field(default_factory=set)
-    risk_aversion: float = DEFAULT_RISK_AVERSION
-    # Equality locks (fraction of portfolio). Freeze list + advisor overrides.
-    fixed_weights: dict[str, float] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
-class ComplianceViolation:
-    rule_category: str
-    rule_name: str
-    message: str
-    parameters: dict[str, Any] = field(default_factory=dict)
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 
 def ledoit_wolf_cov(returns: pd.DataFrame) -> np.ndarray:
     """Ledoit–Wolf shrunk covariance of columns; cash rows/cols near zero.
@@ -820,12 +696,6 @@ def compliance_resolve_loop(
         },
     )
 
-
-# ---------------------------------------------------------------------------
-# Universe / views / rules helpers (public for unit tests / pipeline wiring)
-# ---------------------------------------------------------------------------
-
-
 def build_optimizer_universe(
     base_positions: Sequence[Mapping[str, Any]],
     returns_columns: Sequence[Any] | None = None,
@@ -890,382 +760,6 @@ def build_optimizer_universe(
         "approved_crypto_bases": sorted(bases),
         "approved_crypto_tickers": sorted(approved_tickers),
     }
-
-
-def constraints_from_trading_rules(
-    trading_rules: Sequence[Mapping[str, Any]],
-    *,
-    tickers: Sequence[str],
-    asset_classes: Mapping[str, str],
-    client_alias: str | None = None,
-    risk_aversion: float = DEFAULT_RISK_AVERSION,
-    approved_crypto: Sequence[str] | None = None,
-) -> OptimizeConstraints:
-    """Fold active trading_rules parameters into OptimizeConstraints."""
-    bases = frozenset(
-        str(b).strip().upper().removesuffix("-USD")
-        for b in (
-            approved_crypto
-            if approved_crypto is not None
-            else approved_crypto_bases_from_rules(trading_rules)
-        )
-        if str(b).strip()
-    )
-    approved_tickers = frozenset(f"{b}-USD" for b in bases)
-
-    def _approved(ticker: str) -> bool:
-        t = _normalize_ticker(ticker)
-        if t in approved_tickers:
-            return True
-        base = t[:-4] if t.endswith("-USD") else t
-        return base in bases
-
-    cash_tickers = {t for t in tickers if _is_cash_ticker(t) or asset_classes.get(t) == "CASH"}
-    crypto_tickers = {
-        t
-        for t in tickers
-        if asset_classes.get(t) == "CRYPTO" or _approved(t)
-    }
-    restricted: set[str] = set()
-    min_cash: float | None = None
-    max_single: float | None = None
-    max_crypto: float | None = None
-    max_crypto_single: float | None = None
-
-    for rule in trading_rules:
-        if rule.get("is_active") is False:
-            continue
-        category = normalize_rule_category(str(rule.get("rule_category", "")))
-        params = dict(rule.get("parameters") or {})
-        name = str(rule.get("rule_name", "")).strip().lower()
-
-        if category == RULE_PORTFOLIO:
-            ac = str(params.get("asset_class", "") or "").upper()
-            cash_cap, _ = effective_min_cash_weight(rule)
-            if cash_cap is not None:
-                min_cash = cash_cap if min_cash is None else max(min_cash, cash_cap)
-            single_cap, _ = effective_max_single_weight(rule)
-            if single_cap is not None:
-                if ac == "CRYPTO":
-                    max_crypto_single = (
-                        single_cap
-                        if max_crypto_single is None
-                        else min(max_crypto_single, single_cap)
-                    )
-                else:
-                    max_single = (
-                        single_cap
-                        if max_single is None
-                        else min(max_single, single_cap)
-                    )
-            if params.get("max_total_weight") is not None and ac == "CRYPTO":
-                val = float(params["max_total_weight"])
-                max_crypto = val if max_crypto is None else min(max_crypto, val)
-
-        elif category == RULE_TRADE:
-            for t in params.get("restricted_tickers") or []:
-                restricted.add(_normalize_ticker(str(t)))
-
-        elif category == RULE_CLIENT:
-            # Firm-wide jurisdictions row is not a ticker restriction.
-            if name == "jurisdictions":
-                continue
-            if not _client_rule_applies(params, client_alias):
-                continue
-            for t in params.get("ineligible_tickers") or []:
-                restricted.add(_normalize_ticker(str(t)))
-
-    # Never allow non-approved crypto (defense in depth).
-    for t in tickers:
-        if asset_classes.get(t) == "CRYPTO" and not _approved(t):
-            restricted.add(t)
-
-    return OptimizeConstraints(
-        min_cash_weight=min_cash,
-        max_single_weight=max_single,
-        max_crypto_weight=max_crypto,
-        max_crypto_single_weight=max_crypto_single,
-        restricted_tickers=restricted,
-        cash_tickers=cash_tickers,
-        crypto_tickers=crypto_tickers,
-        risk_aversion=risk_aversion,
-    )
-
-
-def evaluate_weight_compliance(
-    weights: Mapping[str, float],
-    *,
-    asset_classes: Mapping[str, str],
-    trading_rules: Sequence[Mapping[str, Any]],
-    constraints: OptimizeConstraints,
-    client_alias: str | None = None,
-) -> list[ComplianceViolation]:
-    """Check PORTFOLIO / TRADE / CLIENT trading_rules (legacy aliases OK)."""
-    violations: list[ComplianceViolation] = []
-    w = { _normalize_ticker(k): float(v) for k, v in weights.items() }
-
-    cash_weight = sum(
-        wt
-        for t, wt in w.items()
-        if t in constraints.cash_tickers or asset_classes.get(t) == "CASH" or _is_cash_ticker(t)
-    )
-    crypto_weight = sum(
-        wt
-        for t, wt in w.items()
-        if t in constraints.crypto_tickers or asset_classes.get(t) == "CRYPTO"
-    )
-
-    for rule in trading_rules:
-        if rule.get("is_active") is False:
-            continue
-        category = normalize_rule_category(str(rule.get("rule_category", "")))
-        name = str(rule.get("rule_name", category))
-        params = dict(rule.get("parameters") or {})
-
-        if category == RULE_PORTFOLIO:
-            ac = str(params.get("asset_class", "") or "").upper()
-            min_cash, _ = effective_min_cash_weight(rule)
-            if min_cash is None:
-                min_cash = constraints.min_cash_weight
-            max_single, _ = effective_max_single_weight(rule)
-            if max_single is None:
-                max_single = constraints.max_single_weight
-            max_crypto = (
-                params.get("max_total_weight")
-                if ac == "CRYPTO"
-                else constraints.max_crypto_weight
-            )
-            max_crypto_single = constraints.max_crypto_single_weight
-            if ac == "CRYPTO" and max_single is not None:
-                # CRYPTO asset_class single-name uses the same effective resolver
-                max_crypto_single = float(max_single)
-                max_single = constraints.max_single_weight
-            if min_cash is not None and cash_weight + 1e-9 < float(min_cash):
-                violations.append(
-                    ComplianceViolation(
-                        rule_category=category,
-                        rule_name=name,
-                        message=(
-                            f"trading_rules '{name}': cash weight "
-                            f"{cash_weight:.4f} below min_cash_weight "
-                            f"{float(min_cash):.4f}"
-                        ),
-                        parameters=params,
-                    )
-                )
-            if max_crypto is not None and crypto_weight > float(max_crypto) + 1e-9:
-                violations.append(
-                    ComplianceViolation(
-                        rule_category=category,
-                        rule_name=name,
-                        message=(
-                            f"trading_rules '{name}': CRYPTO sleeve "
-                            f"{crypto_weight:.4f} exceeds max_total_weight "
-                            f"{float(max_crypto):.4f}"
-                        ),
-                        parameters=params,
-                    )
-                )
-            if max_crypto_single is not None:
-                for t, wt in w.items():
-                    if asset_classes.get(t) != "CRYPTO" and t not in constraints.crypto_tickers:
-                        continue
-                    if wt > float(max_crypto_single) + 1e-9:
-                        violations.append(
-                            ComplianceViolation(
-                                rule_category=category,
-                                rule_name=name,
-                                message=(
-                                    f"trading_rules '{name}': {t} weight "
-                                    f"{wt:.4f} exceeds CRYPTO max_single_weight "
-                                    f"{float(max_crypto_single):.4f}"
-                                ),
-                                parameters={**params, "ticker": t},
-                            )
-                        )
-            if max_single is not None:
-                for t, wt in w.items():
-                    if _is_cash_ticker(t) or asset_classes.get(t) == "CASH":
-                        continue
-                    if wt > float(max_single) + 1e-9:
-                        violations.append(
-                            ComplianceViolation(
-                                rule_category=category,
-                                rule_name=name,
-                                message=(
-                                    f"trading_rules '{name}': {t} weight "
-                                    f"{wt:.4f} exceeds max_single_weight "
-                                    f"{float(max_single):.4f}"
-                                ),
-                                parameters={**params, "ticker": t},
-                            )
-                        )
-
-        elif category == RULE_TRADE:
-            for t in params.get("restricted_tickers") or []:
-                nt = _normalize_ticker(str(t))
-                if w.get(nt, 0.0) > 1e-9:
-                    violations.append(
-                        ComplianceViolation(
-                            rule_category=category,
-                            rule_name=name,
-                            message=f"Restricted ticker {nt} has weight {w[nt]:.4f}",
-                            parameters=params,
-                        )
-                    )
-
-        elif category == RULE_CLIENT:
-            if str(rule.get("rule_name", "")).strip().lower() == "jurisdictions":
-                continue
-            if not _client_rule_applies(params, client_alias):
-                continue
-            for t in params.get("ineligible_tickers") or []:
-                nt = _normalize_ticker(str(t))
-                if w.get(nt, 0.0) > 1e-9:
-                    violations.append(
-                        ComplianceViolation(
-                            rule_category=category,
-                            rule_name=name,
-                            message=(
-                                f"Client-ineligible ticker {nt} has weight "
-                                f"{w[nt]:.4f}"
-                            ),
-                            parameters=params,
-                        )
-                    )
-
-    # Also enforce constraint object caps when no PORTFOLIO rule rows exist.
-    if not any(
-        normalize_rule_category(str(r.get("rule_category", ""))) == RULE_PORTFOLIO
-        for r in trading_rules
-        if r.get("is_active") is not False
-    ):
-        if (
-            constraints.min_cash_weight is not None
-            and cash_weight + 1e-9 < float(constraints.min_cash_weight)
-        ):
-            violations.append(
-                ComplianceViolation(
-                    rule_category=RULE_PORTFOLIO,
-                    rule_name="constraints_min_cash",
-                    message=(
-                        f"trading_rules: cash weight {cash_weight:.4f} below "
-                        f"min_cash_weight {float(constraints.min_cash_weight):.4f}"
-                    ),
-                )
-            )
-        if (
-            constraints.max_crypto_weight is not None
-            and crypto_weight > float(constraints.max_crypto_weight) + 1e-9
-        ):
-            violations.append(
-                ComplianceViolation(
-                    rule_category=RULE_PORTFOLIO,
-                    rule_name="constraints_max_crypto",
-                    message=(
-                        f"trading_rules: CRYPTO sleeve {crypto_weight:.4f} exceeds "
-                        f"max_total_weight {float(constraints.max_crypto_weight):.4f}"
-                    ),
-                )
-            )
-        if constraints.max_single_weight is not None:
-            for t, wt in w.items():
-                if _is_cash_ticker(t) or asset_classes.get(t) == "CASH":
-                    continue
-                if wt > float(constraints.max_single_weight) + 1e-9:
-                    violations.append(
-                        ComplianceViolation(
-                            rule_category=RULE_PORTFOLIO,
-                            rule_name="constraints_max_single",
-                            message=(
-                                f"trading_rules: {t} weight {wt:.4f} exceeds "
-                                f"max_single_weight "
-                                f"{float(constraints.max_single_weight):.4f}"
-                            ),
-                            parameters={"ticker": t},
-                        )
-                    )
-        if constraints.max_crypto_single_weight is not None:
-            for t, wt in w.items():
-                if asset_classes.get(t) != "CRYPTO" and t not in constraints.crypto_tickers:
-                    continue
-                if wt > float(constraints.max_crypto_single_weight) + 1e-9:
-                    violations.append(
-                        ComplianceViolation(
-                            rule_category=RULE_PORTFOLIO,
-                            rule_name="constraints_max_crypto_single",
-                            message=(
-                                f"{t} CRYPTO weight {wt:.4f} exceeds max single "
-                                f"{float(constraints.max_crypto_single_weight):.4f}"
-                            ),
-                            parameters={"ticker": t},
-                        )
-                    )
-
-    for t in constraints.restricted_tickers:
-        if w.get(t, 0.0) > 1e-9:
-            violations.append(
-                ComplianceViolation(
-                    rule_category=RULE_TRADE,
-                    rule_name="constraints_restricted",
-                    message=f"Restricted ticker {t} has weight {w[t]:.4f}",
-                    parameters={"ticker": t},
-                )
-            )
-
-    return violations
-
-
-def tighten_constraints(
-    constraints: OptimizeConstraints,
-    violations: Sequence[ComplianceViolation],
-    *,
-    asset_classes: Mapping[str, str],
-) -> OptimizeConstraints:
-    """Tighten caps / expand restricted set based on violation categories."""
-    min_cash = constraints.min_cash_weight
-    max_single = constraints.max_single_weight
-    max_crypto = constraints.max_crypto_weight
-    max_crypto_single = constraints.max_crypto_single_weight
-    restricted = set(constraints.restricted_tickers)
-
-    for v in violations:
-        if v.rule_category == RULE_PORTFOLIO:
-            msg = v.message.lower()
-            if "cash" in msg:
-                floor = 0.0 if min_cash is None else float(min_cash)
-                min_cash = min(0.95, floor + TIGHTEN_CASH_STEP)
-            if "crypto weight" in msg and "max single" not in msg:
-                cap = 0.10 if max_crypto is None else float(max_crypto)
-                max_crypto = max(0.0, cap * TIGHTEN_CRYPTO_FACTOR)
-            if "crypto weight" in msg and "max single" in msg:
-                cap = (
-                    0.05
-                    if max_crypto_single is None
-                    else float(max_crypto_single)
-                )
-                max_crypto_single = max(0.005, cap * TIGHTEN_SINGLE_FACTOR)
-            elif "max single" in msg or "exceeds max single" in msg:
-                cap = 0.25 if max_single is None else float(max_single)
-                max_single = max(0.01, cap * TIGHTEN_SINGLE_FACTOR)
-        elif v.rule_category in (RULE_TRADE, RULE_CLIENT):
-            ticker = v.parameters.get("ticker")
-            if ticker:
-                restricted.add(_normalize_ticker(str(ticker)))
-            for token in v.message.split():
-                cand = _normalize_ticker(token)
-                if cand in asset_classes or _is_approved_crypto(cand):
-                    restricted.add(cand)
-
-    return replace(
-        constraints,
-        min_cash_weight=min_cash,
-        max_single_weight=max_single,
-        max_crypto_weight=max_crypto,
-        max_crypto_single_weight=max_crypto_single,
-        restricted_tickers=restricted,
-    )
-
 
 def weights_to_opti_positions(
     weights: Mapping[str, float],
@@ -1412,12 +906,6 @@ def qualitative_view_to_tilt(view_text: str) -> float:
         return QUALITATIVE_VIEW_TILTS["bearish"]
     return 0.0
 
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
 def _validate_returns_frame(returns: pd.DataFrame) -> None:
     if not isinstance(returns, pd.DataFrame):
         raise ScenarioOptimizerError(
@@ -1429,56 +917,6 @@ def _validate_returns_frame(returns: pd.DataFrame) -> None:
             "returns DataFrame is empty",
             details={"shape": list(returns.shape)},
         )
-
-
-def _normalize_ticker(raw: str) -> str:
-    """Optimizer cash form keeps ``CASH_USD``; crypto/equity via shared helper."""
-    from backend.app.services.ticker_normalize import normalize_ticker
-
-    t = str(raw or "").strip().upper()
-    if t in CASH_TICKER_ALIASES:
-        if t == "USD":
-            return "USD"
-        return "CASH_USD" if t in {"CASH", "CASH_USD"} else t
-    return normalize_ticker(t)
-
-
-def _normalize_asset_class(raw: str) -> str:
-    ac = raw.strip().upper()
-    if ac in {"COINS", "COIN"}:
-        return "CRYPTO"
-    if ac in {"EQUITY", "CASH", "CRYPTO"}:
-        return ac
-    return "EQUITY"
-
-
-def _is_cash_ticker(ticker: str) -> bool:
-    t = ticker.strip().upper()
-    return t in CASH_TICKER_ALIASES or t in {"CASH", "CASH_USD", "USD"}
-
-
-def _is_approved_crypto(ticker: str) -> bool:
-    t = _normalize_ticker(ticker)
-    if t in APPROVED_CRYPTO_TICKERS:
-        return True
-    base = t[:-4] if t.endswith("-USD") else t
-    return base in APPROVED_CRYPTO_BASES
-
-
-def _client_rule_applies(params: Mapping[str, Any], client_alias: str | None) -> bool:
-    if client_alias is None:
-        # Firm-wide application when no alias filter context: apply if no alias
-        # keyed on the rule, otherwise skip client-specific rows.
-        return not (params.get("client_alias") or params.get("client_id"))
-    alias = str(client_alias).strip().lower()
-    rule_alias = str(params.get("client_alias") or "").strip().lower()
-    if rule_alias and rule_alias == alias:
-        return True
-    # client_id match left to caller identity; alias is Phase-1 primary key.
-    if rule_alias and rule_alias != alias:
-        return False
-    return not rule_alias
-
 
 def _as_aligned_vector(
     values: np.ndarray | pd.Series,
@@ -1568,70 +1006,6 @@ def _ensure_symmetric_psd(cov: np.ndarray) -> np.ndarray:
     eigvals = np.clip(eigvals, CASH_COV_EPSILON, None)
     return (eigvecs * eigvals) @ eigvecs.T
 
-
-def _coerce_constraints(
-    constraints: OptimizeConstraints | Mapping[str, Any],
-    tickers: Sequence[str],
-) -> OptimizeConstraints:
-    if isinstance(constraints, OptimizeConstraints):
-        cons = constraints
-    else:
-        restricted = {
-            _normalize_ticker(str(t))
-            for t in (constraints.get("restricted_tickers") or [])
-        }
-        cash = {
-            _normalize_ticker(str(t))
-            for t in (constraints.get("cash_tickers") or [])
-        }
-        crypto = {
-            _normalize_ticker(str(t))
-            for t in (constraints.get("crypto_tickers") or [])
-        }
-        if not cash:
-            cash = {t for t in tickers if _is_cash_ticker(t)}
-        if not crypto:
-            crypto = {t for t in tickers if _is_approved_crypto(t)}
-        cons = OptimizeConstraints(
-            min_cash_weight=(
-                None
-                if constraints.get("min_cash_weight") is None
-                else float(constraints["min_cash_weight"])
-            ),
-            max_single_weight=(
-                None
-                if constraints.get("max_single_weight") is None
-                else float(constraints["max_single_weight"])
-            ),
-            max_crypto_weight=(
-                None
-                if constraints.get("max_crypto_weight") is None
-                else float(constraints["max_crypto_weight"])
-            ),
-            max_crypto_single_weight=(
-                None
-                if constraints.get("max_crypto_single_weight") is None
-                else float(constraints["max_crypto_single_weight"])
-            ),
-            restricted_tickers=restricted,
-            cash_tickers=cash,
-            crypto_tickers=crypto,
-            risk_aversion=float(
-                constraints.get("risk_aversion", DEFAULT_RISK_AVERSION)
-            ),
-            fixed_weights={
-                _normalize_ticker(str(k)): float(v)
-                for k, v in dict(constraints.get("fixed_weights") or {}).items()
-            },
-        )
-    # Ensure cash/crypto sets cover aliases present in tickers.
-    cash = set(cons.cash_tickers) | {t for t in tickers if _is_cash_ticker(t)}
-    crypto = set(cons.crypto_tickers) | {
-        t for t in tickers if _is_approved_crypto(t)
-    }
-    return replace(cons, cash_tickers=cash, crypto_tickers=crypto)
-
-
 def _resolve_fixed_weights(
     *,
     base_positions: Sequence[Mapping[str, Any]],
@@ -1680,23 +1054,6 @@ def _resolve_fixed_weights(
         fixed[t] = float(max(0.0, min(1.0, wt)))
 
     return fixed
-
-
-def _constraints_to_dict(cons: OptimizeConstraints) -> dict[str, Any]:
-    return {
-        "min_cash_weight": cons.min_cash_weight,
-        "max_single_weight": cons.max_single_weight,
-        "max_crypto_weight": cons.max_crypto_weight,
-        "max_crypto_single_weight": cons.max_crypto_single_weight,
-        "restricted_tickers": sorted(cons.restricted_tickers),
-        "cash_tickers": sorted(cons.cash_tickers),
-        "crypto_tickers": sorted(cons.crypto_tickers),
-        "risk_aversion": cons.risk_aversion,
-        "fixed_weights": {
-            k: float(v) for k, v in sorted(cons.fixed_weights.items())
-        },
-    }
-
 
 def _views_from_strategy(
     strategy_view: StrategyView | Mapping[str, Any] | None,
@@ -1815,6 +1172,7 @@ __all__ = [
     "APPROVED_CRYPTO_BASES",
     "APPROVED_CRYPTO_TICKERS",
     "CASH_TICKER_ALIASES",
+    "DEFAULT_RISK_AVERSION",
     "QUALITATIVE_VIEW_TILTS",
     "normalize_rule_category",
     "ComplianceUnresolvedError",

@@ -397,15 +397,15 @@ def test_copilot_session_import_optimize_place(
 
     with (
         patch(
-            "backend.app.services.copilot_fsm.validate_import",
+            "backend.app.services.copilot_actions.validate_import",
             AsyncMock(return_value=validate),
         ),
         patch(
-            "backend.app.services.copilot_fsm.build_base",
+            "backend.app.services.copilot_actions.build_base",
             AsyncMock(return_value=build),
         ),
         patch(
-            "backend.app.services.copilot_fsm.set_portfolio_import_hitl",
+            "backend.app.services.copilot_actions.set_portfolio_import_hitl",
             MagicMock(),
         ),
         patch(
@@ -413,15 +413,19 @@ def test_copilot_session_import_optimize_place(
             _fake_parse,
         ),
         patch(
-            "backend.app.services.copilot_fsm.execute_scenario_run",
+            "backend.app.services.copilot_actions.parse_and_create_run",
+            _fake_parse,
+        ),
+        patch(
+            "backend.app.services.copilot_actions.execute_scenario_run",
             _fake_execute,
         ),
         patch(
-            "backend.app.services.copilot_fsm.place_all_staged_orders",
+            "backend.app.services.copilot_actions.place_all_staged_orders",
             _fake_place_sync,
         ),
         patch(
-            "backend.app.services.copilot_fsm.has_rating_for_run",
+            "backend.app.services.copilot_common.has_rating_for_run",
             return_value=True,
         ),
     ):

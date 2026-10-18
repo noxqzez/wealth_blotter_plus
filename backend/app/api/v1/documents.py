@@ -28,6 +28,12 @@ from backend.app.services.document_ingest import (
     process_ingest_job,
     upload_research_pdf,
 )
+from backend.app.services.document_upload_guards import (
+    DocumentUploadDisabledError,
+    DocumentUploadGuardError,
+    DocumentUploadQuotaError,
+    DocumentUploadRateLimitError,
+)
 from backend.app.services.embeddings import EmbeddingError
 from backend.app.services.rag_retrieve import RagRetrieveError, retrieve_research_chunks
 
@@ -65,6 +71,22 @@ async def upload_document(
             content=raw,
             content_type=file.content_type,
         )
+    except DocumentUploadDisabledError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from exc
+    except DocumentUploadRateLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
+        ) from exc
+    except DocumentUploadQuotaError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
+        ) from exc
+    except DocumentUploadGuardError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     except DocumentIngestError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)

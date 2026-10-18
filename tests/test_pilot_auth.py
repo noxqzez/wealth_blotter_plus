@@ -52,6 +52,48 @@ def test_require_byok_satisfied_from_context() -> None:
     clear_byok()
 
 
+def test_invalid_jwt_falls_back_when_dev_bypass() -> None:
+    from backend.app.core.security import get_current_user
+    import asyncio
+
+    settings = MagicMock()
+    settings.environment = "development"
+    settings.dev_auth_bypass = True
+    settings.dev_advisor_id = "00000000-0000-4000-8000-000000000001"
+    settings.supabase_jwt_secret = "wrong-secret-not-matching-tokens"
+    settings.jwt_algorithm = "HS256"
+    settings.jwt_audience = "authenticated"
+    settings.require_pilot_approval = False
+
+    creds = MagicMock()
+    creds.scheme = "Bearer"
+    creds.credentials = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJhdWQiOiJhdXRoZW50aWNhdGVkIn0."
+        "invalidsignature"
+    )
+
+    ctx = asyncio.run(get_current_user(creds, settings))  # type: ignore[arg-type]
+    assert str(ctx.advisor_id) == settings.dev_advisor_id
+    assert ctx.raw_claims.get("bypass") is True
+
+
+def test_require_byok_satisfied_by_base_url() -> None:
+    set_byok(
+        ByokCredentials(
+            api_key="",
+            provider="ollama",
+            base_url="http://127.0.0.1:11434",
+        )
+    )
+    settings = MagicMock()
+    settings.environment = "production"
+    settings.require_byok = True
+    creds = require_byok_for_llm(settings=settings)
+    assert creds.base_url.startswith("http://127.0.0.1")
+    clear_byok()
+
+
 def test_pending_profile_forbidden() -> None:
     aid = uuid4()
     with patch(

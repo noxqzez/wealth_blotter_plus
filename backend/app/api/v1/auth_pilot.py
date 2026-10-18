@@ -10,6 +10,7 @@ from backend.app.schemas.pilot_auth import (
     LoginRequest,
     LoginResponse,
     MeResponse,
+    RefreshRequest,
     RegisterRequest,
     RegisterResponse,
     SsoAuthorizeResponse,
@@ -45,6 +46,12 @@ async def register(payload: RegisterRequest) -> RegisterResponse:
 async def login(payload: LoginRequest) -> LoginResponse:
     """Return JWT only when profiles.approval_status = APPROVED."""
     return svc.login_pilot(email=str(payload.email), password=payload.password)
+
+
+@router.post("/refresh", response_model=LoginResponse)
+async def refresh(payload: RefreshRequest) -> LoginResponse:
+    """Renew access_token from refresh_token so Excel sessions stay open."""
+    return svc.refresh_pilot(refresh_token=payload.refresh_token)
 
 
 @router.get("/me", response_model=MeResponse)

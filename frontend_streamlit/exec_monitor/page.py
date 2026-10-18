@@ -53,6 +53,38 @@ def render_exec_monitor() -> None:
         peg_revenue = st.toggle("Peg token usage to revenue", value=False)
         route_open = st.toggle("Route all requests to open LLM", value=False)
 
+    with st.sidebar.expander("Past Analogue (pilot)", expanded=False):
+        from frontend_streamlit.exec_monitor.data import (
+            load_scenario_wf02_config,
+            persist_past_analogue_flag,
+        )
+
+        wf02 = load_scenario_wf02_config()
+        flags = dict(wf02.get("feature_flags") or {})
+        phase = str(wf02.get("phase") or "phase1").lower()
+        allowed = wf02.get("past_analogue_allowed", True) is not False
+        locked = (not allowed) or phase in {"post_pilot", "production", "ga"}
+        current = bool(flags.get("past_analogue", False))
+        if locked:
+            st.caption("Locked off after pilot — set past_analogue_allowed / phase in configs.")
+            st.toggle("Enable Past Analogue", value=False, disabled=True)
+        else:
+            pa_on = st.toggle(
+                "Enable Past Analogue",
+                value=current,
+                help=(
+                    "When on: Tavily + Ollama find similar past periods and apply "
+                    "tilts to Opti Folio (trading/compliance rules still enforced). "
+                    "Turn off to skip Tavily and leave weights unchanged."
+                ),
+            )
+            if pa_on != current:
+                ok, msg = persist_past_analogue_flag(enabled=pa_on)
+                if ok:
+                    st.success(msg)
+                else:
+                    st.warning(msg)
+
     period = st.sidebar.selectbox(
         "Time period",
         ["Today", "Last 7 Days", "Last 30 Days", "Year-to-Date"],

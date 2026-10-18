@@ -32,6 +32,18 @@ def _pymupdf() -> Any:
     return pymupdf
 
 
+def count_pdf_pages(data: bytes) -> int:
+    """Return PDF page count without extracting text (quota checks)."""
+    if not data:
+        return 0
+    pymupdf = _pymupdf()
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    try:
+        return int(doc.page_count)
+    finally:
+        doc.close()
+
+
 def extract_pdf_bytes(data: bytes) -> ExtractedDocument:
     """Extract plain text from a PDF byte payload."""
     pymupdf = _pymupdf()

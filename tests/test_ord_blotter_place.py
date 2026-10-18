@@ -6,9 +6,11 @@ from uuid import uuid4
 
 from backend.app.schemas.scenario import StagedTrade
 from backend.app.services.copilot_fsm import (
-    ACTION_PDF,
     ACTION_PLACE,
+    ACTION_PROCESS,
     ORD_BLOTTER_SHEET,
+    _orders_placed_action_ids,
+    _overlay_excel_order_qty,
     build_ord_blotter_write,
 )
 
@@ -49,9 +51,44 @@ def test_ord_blotter_columns_and_defaults() -> None:
     assert row[1] == "demo_client"
     assert row[2] == "Pending"
     assert row[7] == "Market"
+    assert row[6] == 10.0  # qty always 2dp float for Excel #,##0.00
+    assert spec.column_number_formats.get("quantity") == "#,##0.00"
+    assert spec.header_fill_colors.get("ticker") == "BDD7EE"
+    assert spec.header_bold is True
+    assert spec.table_border is True
     assert all(str(c) != "scenario_run_id" for r in spec.values for c in r)
 
 
-def test_place_and_pdf_action_ids() -> None:
+def test_place_action_id() -> None:
     assert ACTION_PLACE == "place_all_orders"
-    assert ACTION_PDF == "download_pdf"
+
+
+def test_orders_placed_only_process_security_list() -> None:
+    assert _orders_placed_action_ids() == [ACTION_PROCESS]
+
+
+def test_overlay_excel_order_qty_preserves_advisor_edit() -> None:
+    trades = [
+        StagedTrade(
+            order_id="ST-1-ETH-USD-BUY-005",
+            client_alias="e2e_demo",
+            status="Executed",
+            ticker="ETH-USD",
+            asset_class="CRYPTO",
+            side="BUY",
+            quantity=2.27,
+            exec_type="Market",
+        )
+    ]
+    excel = [
+        {
+            "order_id": "ST-1-ETH-USD-BUY-005",
+            "ticker": "ETH-USD",
+            "side": "BUY",
+            "quantity": 5,
+        }
+    ]
+    merged = _overlay_excel_order_qty(trades, excel)
+    assert len(merged) == 1
+    assert float(merged[0].quantity) == 5.0
+    assert float(trades[0].quantity) == 2.27  # original unchanged

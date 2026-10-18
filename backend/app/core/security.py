@@ -54,7 +54,7 @@ def decode_supabase_jwt(token: str, settings: Settings) -> dict[str, Any]:
             settings.supabase_jwt_secret,
             algorithms=[settings.jwt_algorithm],
             audience=settings.jwt_audience,
-            options={"verify_aud": True},
+            options={"verify_aud": True, "leeway": 30},
         )
     except JWTError as exc:
         logger.warning("jwt_validation_failed", error=str(exc))
@@ -93,7 +93,29 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing Authorization Bearer token",
         )
-    claims = decode_supabase_jwt(credentials.credentials, settings)
+
+    try:
+        claims = decode_supabase_jwt(credentials.credentials, settings)
+    except HTTPException:
+        # Local DX: after login, a mismatched SUPABASE_JWT_SECRET causes immediate
+        # 401s. Fall back to bypass so Excel stays usable while the secret is fixed.
+        if _bypass_allowed(settings):
+            logger.warning(
+                "jwt_invalid_dev_bypass_fallback",
+                hint=(
+                    "Check SUPABASE_JWT_SECRET matches Supabase Project Settings → API "
+                    "(JWT Secret). Access token was ignored; using DEV_AUTH_BYPASS."
+                ),
+            )
+            return AuthContext(
+                advisor_id=UUID(settings.dev_advisor_id),
+                email="dev@localhost",
+                role="advisor",
+                raw_claims={"sub": settings.dev_advisor_id, "bypass": True},
+                approval_status="APPROVED",
+            )
+        raise
+
     sub = claims.get("sub")
     if not sub:
         raise HTTPException(

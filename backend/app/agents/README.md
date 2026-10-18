@@ -69,7 +69,7 @@ Classification crew + Hugging Face embeddings. See
 ```bash
 uv sync --extra rag
 uv run uvicorn backend.app.main:app --reload --port 8000
-# POST /api/v1/documents/upload
+# POST /api/v1/documents/upload   # kill switch / rate / 50 pages/day guards
 # Optional worker: uv run python -m backend.app.agents.rag_ingest_worker --once
 ```
 
@@ -78,4 +78,17 @@ uv run uvicorn backend.app.main:app --reload --port 8000
 | `doc_classify.py` | Classification orchestrator |
 | `config/doc_classify_*.yaml` | Persona + task |
 | `tools/rag_retrieval_tool.py` | Filtered chunk lookup for analysis agents |
+
+Uploads are scoped to the caller’s `advisor_id`. Retrieval never crosses pilots.
+
+## 6. Past Analogue (scenario)
+
+Deterministic admit / reweight / blend services (not a CrewAI crew). LLM extract
+uses `build_llm()` (Ollama/BYOK). Docs: [docs/PAST_ANALOGUE_EVAL.md](../../../docs/PAST_ANALOGUE_EVAL.md).
+
+| Path | Role |
+|------|------|
+| `../services/past_analogue*.py` | Search, admit, blend, eval |
+| `config/scenario_tasks.yaml` | Scenario parse (horizon / tone cues) |
+| `sector_tilts.py` | Optional sector tilt helpers |
 | `rag_ingest_worker.py` | Poll `document_ingest_jobs` |

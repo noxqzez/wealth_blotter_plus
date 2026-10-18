@@ -69,16 +69,28 @@ INSERT INTO configs (key, config, version, updated_at)
 VALUES (
     'scenario_wf02',
     '{
-      "default_lookback_window": "5Y",
-      "default_lookback_days": 1825,
+      "default_lookback_window": "8Y",
+      "default_lookback_days": 2920,
       "parse_timeout_seconds": 120,
       "run_timeout_seconds": 120,
       "phase": "phase1",
+      "past_analogue_allowed": true,
+      "past_analogue_archive_years": 8,
+      "past_analogue_archive_days": 2920,
+      "past_analogue_top_k": 5,
+      "past_analogue_similarity_threshold": 0.35,
+      "past_analogue_trailing_blend": 0.4,
+      "past_analogue_mix": 0.5,
+      "past_analogue_max_window_days": 180,
+      "past_analogue_search_timeout_ms": 15000,
       "feature_flags": {
         "house_research_rag": true,
         "market_research_web": true,
         "external_research_llm": false,
-        "strategist_stub_ok": false
+        "strategist_stub_ok": false,
+        "past_analogue": true,
+        "past_analogue_apply": true,
+        "past_analogue_web_search": true
       },
       "excel_timeouts": {
         "parse_ms": 120000,

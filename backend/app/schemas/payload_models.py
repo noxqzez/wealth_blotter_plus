@@ -146,6 +146,7 @@ class DocumentUploadResponse(BaseModel):
     original_filename: str
     status: DocumentIngestJobStatus
     auto_process: bool = False
+    page_count: int | None = None
 
 
 class DocumentIngestJobResponse(BaseModel):

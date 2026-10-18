@@ -1,4 +1,4 @@
-"""Deterministic client portfolio-review PDF (J.P. Morgan Private Banking theme).
+"""Deterministic client portfolio-review PDF (institutional confidential theme).
 
 LAYOUT LOCKED (jpm-v1) — do not reshuffle the one-pager without an explicit
 product decision. Fixed single-page composition so successive runs stay visually
@@ -150,7 +150,7 @@ def build_scenario_pdf(
     story: list[Any] = []
 
     # --- Header ---
-    story.append(_EyebrowPill("J.P. MORGAN PRIVATE BANKING — CONFIDENTIAL"))
+    story.append(_EyebrowPill("Not investment advice — CONFIDENTIAL"))
     story.append(Spacer(1, 0.14 * inch))
     story.append(Paragraph(_escape(title), styles["title"]))
     story.append(Spacer(1, 0.04 * inch))
@@ -867,6 +867,7 @@ def _allocation_card(
     drawing.add(pie)
 
     # Manual on-slice labels (centered on each arc mid-angle).
+    # Always pair ticker + % when a label is shown (never bare "8%").
     cx = pie_x + pie_w / 2.0
     cy = pie_y + pie_w / 2.0
     r_mid = (pie_w / 2.0) * (pie.innerRadiusFraction + 1.0) / 2.0
@@ -875,32 +876,19 @@ def _allocation_card(
         sweep = w * 360.0
         mid_deg = start_deg - sweep / 2.0
         mid = math.radians(mid_deg)
-        if w >= 0.09:
+        if w >= 0.06:
             tx = cx + r_mid * math.cos(mid)
             ty = cy + r_mid * math.sin(mid)
             short = lab if len(lab) <= 7 else lab[:7]
             text = f"{short} {w * 100:.0f}%"
+            font_size = 5.5 if w >= 0.09 else 5.0
             drawing.add(
                 String(
                     tx,
                     ty - 2.2,
                     text,
                     fontName="Helvetica-Bold",
-                    fontSize=5.5,
-                    fillColor=colors.white,
-                    textAnchor="middle",
-                )
-            )
-        elif w >= 0.06:
-            tx = cx + r_mid * math.cos(mid)
-            ty = cy + r_mid * math.sin(mid)
-            drawing.add(
-                String(
-                    tx,
-                    ty - 2.0,
-                    f"{w * 100:.0f}%",
-                    fontName="Helvetica-Bold",
-                    fontSize=5,
+                    fontSize=font_size,
                     fillColor=colors.white,
                     textAnchor="middle",
                 )

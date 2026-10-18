@@ -424,6 +424,59 @@ def compute_kpis(
     }
 
 
+def load_scenario_wf02_config() -> dict[str, Any]:
+    """Read configs.scenario_wf02 (empty dict on mock / failure)."""
+    client = _client()
+    if client is None:
+        return {}
+    try:
+        res = (
+            client.table("configs")
+            .select("config")
+            .eq("key", "scenario_wf02")
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            return {}
+        cfg = rows[0].get("config") or {}
+        return dict(cfg) if isinstance(cfg, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def persist_past_analogue_flag(*, enabled: bool) -> tuple[bool, str]:
+    """Write feature_flags.past_analogue. Returns (ok, message). Easy rollback: set false."""
+    client = _client()
+    if client is None:
+        return False, "Supabase not configured — flag not persisted (UI-only)."
+    try:
+        cfg = load_scenario_wf02_config()
+        if not cfg:
+            return False, "configs.scenario_wf02 not found."
+        if cfg.get("past_analogue_allowed") is False:
+            return False, "Past Analogue disabled post-pilot (past_analogue_allowed=false)."
+        phase = str(cfg.get("phase") or "").lower()
+        if phase in {"post_pilot", "production", "ga"}:
+            return False, f"Past Analogue locked off for phase={phase}."
+        flags = dict(cfg.get("feature_flags") or {})
+        flags["past_analogue"] = bool(enabled)
+        # Apply follows master switch (tilts + Tavily only when enabled).
+        flags["past_analogue_apply"] = bool(enabled)
+        cfg["feature_flags"] = flags
+        client.table("configs").update({"config": cfg}).eq(
+            "key", "scenario_wf02"
+        ).execute()
+        return True, (
+            "Past Analogue enabled (tilts apply to Opti Folio)."
+            if enabled
+            else "Past Analogue disabled (no Tavily / no tilts)."
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Failed to persist flag: {exc}"
+
+
 def _filter_advisors(df: pd.DataFrame, advisor_filter: list[str] | None) -> pd.DataFrame:
     """``None`` = all advisors; ``[]`` = match none; otherwise exact id set."""
     if df is None or df.empty:

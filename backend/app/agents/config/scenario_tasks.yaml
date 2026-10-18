@@ -4,7 +4,13 @@ parse_scenario:
   description: >
     Parse the advisor's free-text market scenario into scenario_params.
     Use CRYPTO (never Coins) for crypto asset class tags.
-    Default lookback_window to 5Y and base_currency to USD when unclear.
+    Default lookback_window to 8Y and base_currency to USD when unclear.
+    Set investment_horizon from temporal language in the prompt:
+    "next year" / "over the next year" / "by next year" → 1Y;
+    an explicit future calendar year (e.g. 2027, 2028) or "by 2028" → 1Y
+    (or multi-year like 2Y/3Y when the gap is clearly longer);
+    "next month" / "by month-end" → 1M; "next week" → 1W.
+    Only default investment_horizon to 1M when the prompt has no time cue.
     Do not invent numeric portfolio weights or optimizer math.
     severity must be exactly low, medium, or high (pick one).
     tone must be exactly risk_off, risk_on, or neutral (pick one).

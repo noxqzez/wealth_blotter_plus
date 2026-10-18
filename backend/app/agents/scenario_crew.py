@@ -29,6 +29,11 @@ from backend.app.schemas.scenario import (
     StrategyAssetView,
     StrategyView,
 )
+from backend.app.agents.sector_tilts import (
+    detect_sector_tilts,
+    sector_tilt_summary_bits,
+    ticker_sector_tilt,
+)
 from backend.app.services.coin_temperature import (
     coin_temperature_from_config,
     coin_temperature_scale,
@@ -50,7 +55,7 @@ _EXAMPLE_JSON = {
         "tone": "risk_off",
         "base_currency": "USD",
         "investment_horizon": "1M",
-        "lookback_window": "5Y",
+        "lookback_window": "8Y",
         "data_frequency": "daily",
     },
     "detected_factors": {
@@ -59,7 +64,7 @@ _EXAMPLE_JSON = {
         "impacted_asset_classes": ["us_equities", "hk_equities", "crypto", "cash"],
     },
     "market_data_request_params": {
-        "lookback_window": "5Y",
+        "lookback_window": "8Y",
         "frequency": "daily",
         "required_fields": ["adjusted_close", "dividend_yield", "volume"],
         "include_cash_proxy": True,
@@ -98,7 +103,7 @@ _EXAMPLE_JSON_RISK_ON = {
         "tone": "risk_on",
         "base_currency": "USD",
         "investment_horizon": "1Y",
-        "lookback_window": "5Y",
+        "lookback_window": "8Y",
         "data_frequency": "daily",
     },
     "detected_factors": {
@@ -107,7 +112,7 @@ _EXAMPLE_JSON_RISK_ON = {
         "impacted_asset_classes": ["us_equities", "crypto"],
     },
     "market_data_request_params": {
-        "lookback_window": "5Y",
+        "lookback_window": "8Y",
         "frequency": "daily",
         "required_fields": ["adjusted_close", "dividend_yield", "volume"],
         "include_cash_proxy": True,
@@ -183,6 +188,43 @@ def _prompt_tone_override(user_prompt: str) -> str | None:
         return "risk_off"
     if on_hit:
         return "risk_on"
+    return None
+
+
+def _prompt_horizon_override(user_prompt: str) -> str | None:
+    """Map temporal language in the prompt to investment_horizon tokens.
+
+    Beats a missing/default ``1M`` when the advisor clearly said next year,
+    a future calendar year, etc. Explicit ``horizon Nd`` / ``horizon NY`` wins.
+    """
+    lower = (user_prompt or "").lower()
+    explicit = re.search(
+        r"(?:investment\s+)?horizon\s*(?:to\s*|=\s*|:\s*)?(\d+)\s*([ymwd])\b",
+        lower,
+    )
+    if explicit:
+        return f"{explicit.group(1)}{explicit.group(2).upper()}"
+    if re.search(
+        r"\b(?:next\s+year|over\s+the\s+next\s+year|by\s+next\s+year|"
+        r"within\s+(?:a|one)\s+year|in\s+(?:a|one)\s+year)\b",
+        lower,
+    ):
+        return "1Y"
+    # "next 12 months" / "in the next 18 months" → year-scale horizon
+    months = re.search(
+        r"\b(?:in|over|within|for)?\s*(?:the\s+)?next\s+(\d+)\s+months?\b",
+        lower,
+    )
+    if months and int(months.group(1)) >= 12:
+        return "1Y"
+    if re.search(r"\b(?:by|in|through|until)\s+20\d{2}\b", lower) or re.search(
+        r"\b20(2[6-9]|[3-9]\d)\b", lower
+    ):
+        return "1Y"
+    if re.search(r"\b(?:next\s+month|by\s+month[\s-]?end|this\s+month)\b", lower):
+        return "1M"
+    if re.search(r"\b(?:next\s+week|this\s+week)\b", lower):
+        return "1W"
     return None
 
 
@@ -309,7 +351,11 @@ def _coerce_scenario_payload(data: object, *, user_prompt: str) -> dict[str, Any
     scenario["tone"] = tone
     scenario.setdefault("base_currency", "USD")
     scenario.setdefault("investment_horizon", "1M")
-    scenario.setdefault("lookback_window", "5Y")
+    prompt_horizon = _prompt_horizon_override(user_prompt)
+    if prompt_horizon is not None:
+        # Prompt time cues always win (LLM / schema often default to 1M).
+        scenario["investment_horizon"] = prompt_horizon
+    scenario.setdefault("lookback_window", "8Y")
     scenario.setdefault("data_frequency", "daily")
     if not str(scenario.get("scenario_name") or "").strip() or scenario.get(
         "scenario_name"
@@ -350,7 +396,7 @@ def _coerce_scenario_payload(data: object, *, user_prompt: str) -> dict[str, Any
     if not isinstance(mdr, dict):
         mdr = {}
     mdr = dict(mdr)
-    mdr.setdefault("lookback_window", scenario.get("lookback_window", "5Y"))
+    mdr.setdefault("lookback_window", scenario.get("lookback_window", "8Y"))
     mdr.setdefault("frequency", "daily")
     mdr.setdefault(
         "required_fields", ["adjusted_close", "dividend_yield", "volume"]
@@ -439,6 +485,12 @@ def heuristic_scenario_params(user_prompt: str) -> ScenarioParams:
         stype = "geopolitical_oil_shock" if "geopolit" in lower else "oil_price_shock"
     elif "geopolit" in lower:
         stype = "geopolitical_risk"
+    elif any(k in lower for k in ("media", "streaming", "netflix", "hollywood")):
+        stype = "media_equity_shock" if any(
+            k in lower for k in ("drop", "fall", "crash", "plunge", "selloff")
+        ) else "media_equity_rally"
+
+    horizon = _prompt_horizon_override(text) or "1M"
 
     return ScenarioParams(
         user_prompt=text,
@@ -448,6 +500,7 @@ def heuristic_scenario_params(user_prompt: str) -> ScenarioParams:
             scenario_type=stype,
             severity=severity,  # type: ignore[arg-type]
             tone=tone,  # type: ignore[arg-type]
+            investment_horizon=horizon,
         ),
         detected_factors=DetectedFactors(
             macro_factors=factors,
@@ -458,7 +511,7 @@ def heuristic_scenario_params(user_prompt: str) -> ScenarioParams:
         research_context_tags=tags,
         downstream_instructions=DownstreamInstructions(
             for_market_data_service=(
-                "Use portfolio tickers plus approved crypto; 5Y daily adjusted close."
+                "Use portfolio tickers plus approved crypto; 8Y daily adjusted close."
             ),
             for_research_agents="Retrieve views relevant to the scenario tags.",
             for_quant_agent="Derive numeric tilts in deterministic Python services.",
@@ -624,12 +677,14 @@ def build_stub_strategy_view(
     universe_tickers: Sequence[str],
     coin_temperature: CoinTemperatureLiteral | int | str = 2,
     scenario_tone: str = "neutral",
+    user_prompt: str = "",
 ) -> StrategyView:
     """
     Phase-1 stub strategy_view (no LLM). Neutral/cautious tilts by tone.
 
-    Extensible: replace with house RAG + market research consolidation when
-    ``feature_flags.strategist_stub_ok`` is false / Phase 2.
+    Sector-specific lexical cues (energy, media, tech, …) modestly override
+    matching tickers. Extensible: replace with house RAG + market research
+    consolidation when ``feature_flags.strategist_stub_ok`` is false / Phase 2.
     """
     tone = scenario_tone.strip().lower()
     if tone == "risk_off":
@@ -648,6 +703,11 @@ def build_stub_strategy_view(
         equity_view, crypto_view, conv = "neutral", "neutral", 0.5
         summary = "Neutral stub strategy_view for Phase-1 UAT."
 
+    sector_tilts = detect_sector_tilts(user_prompt)
+    bits = sector_tilt_summary_bits(sector_tilts)
+    if bits:
+        summary = f"{summary} Sector tilts: {'; '.join(bits)}."
+
     dial = normalize_coin_temperature(coin_temperature)
     temp_scale = coin_temperature_scale(dial)
     crypto_conv = min(0.85, conv * temp_scale)
@@ -664,16 +724,42 @@ def build_stub_strategy_view(
             "XRP",
             "SOL",
         }
+        if is_crypto:
+            view, conviction = crypto_view, float(crypto_conv)
+            rationale = summary
+        else:
+            hit = ticker_sector_tilt(ticker, sector_tilts)
+            if hit is not None:
+                sector_key, direction, sector_conv = hit
+                view = "positive" if direction == "bull" else "cautious"
+                conviction = float(sector_conv)
+                rationale = (
+                    f"{summary} ({ticker} {sector_key}-theme {direction} override)."
+                )
+            else:
+                view, conviction = equity_view, float(conv)
+                rationale = summary
         views.append(
             StrategyAssetView(
                 asset=ticker,
-                final_view=crypto_view if is_crypto else equity_view,
-                final_conviction=float(crypto_conv if is_crypto else conv),
-                internal_view=crypto_view if is_crypto else equity_view,
+                final_view=view,
+                final_conviction=conviction,
+                internal_view=view,
                 external_view=None,
                 conflict_resolution="Phase-1 stub (no external research).",
-                rationale=summary,
+                rationale=rationale,
             )
+        )
+
+    notes = [
+        f"coin_temperature dial={dial}/5 (scale={temp_scale:.3f}; 3=neutral).",
+        "Phase-1 stub strategy_view — replace with strategist_agent when Phase 2 enabled.",
+    ]
+    if sector_tilts:
+        notes.append(
+            "sector_tilts="
+            + ",".join(f"{k}:{v}" for k, v in sorted(sector_tilts.items()))
+            + "."
         )
 
     return StrategyView(
@@ -681,10 +767,7 @@ def build_stub_strategy_view(
         asset_views=views,
         summary=summary,
         coin_temperature=dial,  # type: ignore[arg-type]
-        notes=[
-            f"coin_temperature dial={dial}/5 (scale={temp_scale:.3f}; 3=neutral).",
-            "Phase-1 stub strategy_view — replace with strategist_agent when Phase 2 enabled.",
-        ],
+        notes=notes,
     )
 
 

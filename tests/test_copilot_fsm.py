@@ -160,6 +160,11 @@ def test_scratchpad_write_has_header_and_hide() -> None:
     assert write.values[0][0] == "client_alias"
     assert write.values[1][1] == "AAPL"
     assert "last_price" in write.column_number_formats
+    assert write.header_bold is True
+    assert write.table_border is True
+    assert write.header_fill_colors.get("client_alias") == "D9D9D9"
+    assert write.header_fill_colors.get("short_name") == "BDD7EE"
+    assert write.header_horizontal_alignment == "center"
 
 
 @pytest.mark.asyncio
@@ -421,7 +426,6 @@ async def test_rating_skip_does_not_persist(
         ACTION_PLACE,
         ACTION_PDF,
         ACTION_NEW_SCENARIO,
-        ACTION_UPDATE_HOLDINGS,
     ]
 
 

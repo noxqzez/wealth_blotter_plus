@@ -168,6 +168,9 @@ def test_market_color_top_weight_moves_trade_gated() -> None:
     assert "market_color:AAPL" not in drivers
     assert "market_color:MSFT" not in drivers
     assert "AAPL" not in text
+    # Market color present → canned house summary omitted
+    assert all(p.driver != "strategy_summary" for p in points)
+    assert "Consolidated strategy" not in text
     # News/rationale stays out of the talking-point body
     assert "On-chain demand" not in text
     assert "Public news" not in text

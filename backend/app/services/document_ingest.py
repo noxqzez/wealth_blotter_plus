@@ -56,6 +56,8 @@ async def upload_research_pdf(
     auto_process: bool | None = None,
 ) -> DocumentUploadResponse:
     """Upload PDF to Supabase Storage and enqueue an ingest job."""
+    from backend.app.services.document_upload_guards import enforce_rag_upload_guards
+
     settings = get_settings()
     if not content:
         raise DocumentIngestError("Empty file")
@@ -65,6 +67,12 @@ async def upload_research_pdf(
         )
     if not filename.lower().endswith(".pdf"):
         raise DocumentIngestError("Only PDF uploads are supported in this POC")
+
+    page_count = enforce_rag_upload_guards(
+        advisor_id=advisor_id,
+        content=content,
+        settings=settings,
+    )
 
     safe_name = _sanitize_filename(filename)
     job_id = uuid4()
@@ -98,16 +106,26 @@ async def upload_research_pdf(
             f"Storage upload failed (create private bucket '{bucket}'?): {exc}"
         ) from exc
 
-    row = {
+    row: dict[str, Any] = {
         "id": str(job_id),
         "advisor_id": str(advisor_id),
         "storage_bucket": bucket,
         "storage_path": storage_path,
         "original_filename": safe_name,
         "status": DocumentIngestJobStatus.QUEUED.value,
+        "page_count": int(page_count),
         "updated_at": _utc_now_iso(),
     }
-    insert_res = service_table("document_ingest_jobs").insert(row).execute()
+    try:
+        insert_res = service_table("document_ingest_jobs").insert(row).execute()
+    except Exception as exc:  # noqa: BLE001 — pre-migration DBs lack page_count
+        logger.warning(
+            "document_ingest_insert_with_page_count_failed",
+            error=str(exc),
+            hint="Apply migration_rag_upload_guards.sql",
+        )
+        row.pop("page_count", None)
+        insert_res = service_table("document_ingest_jobs").insert(row).execute()
     if not insert_res.data:
         raise DocumentIngestError("Failed to enqueue ingest job")
 
@@ -119,6 +137,7 @@ async def upload_research_pdf(
         job_id=str(job_id),
         advisor_id=str(advisor_id),
         storage_path=storage_path,
+        page_count=page_count,
         auto_process=should_auto,
     )
     return DocumentUploadResponse(
@@ -129,6 +148,7 @@ async def upload_research_pdf(
         original_filename=safe_name,
         status=DocumentIngestJobStatus.QUEUED,
         auto_process=should_auto,
+        page_count=page_count,
     )
 
 

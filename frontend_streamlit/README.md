@@ -48,6 +48,14 @@ Optional identity display: `WBP_MANAGER_USER_ID` / `WBP_MANAGER_EMAIL` matching 
 
 Sidebar cost controls (`coin_temperature`, token cap, open-LLM route) are **UI-only** for now.
 
+### Past Analogue toggle
+
+Sidebar expander **Past Analogue (pilot)** sets `configs.scenario_wf02` →
+`feature_flags.past_analogue` (+ apply follows master switch). When on, scenario
+runs call Tavily/Ollama historical match and blend tilts into Opti Folio. Turn
+**off** when not evaluating to save Tavily credits. See
+[docs/PAST_ANALOGUE_EVAL.md](../docs/PAST_ANALOGUE_EVAL.md).
+
 ## Compliance chat
 
 See prior Phase 1 notes below. Prefer FastAPI + user JWT for chat; do not put

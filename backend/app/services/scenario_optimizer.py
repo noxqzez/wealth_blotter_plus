@@ -1320,14 +1320,16 @@ def weights_to_opti_positions(
     for ticker, weight in sorted(weights.items(), key=lambda kv: (-kv[1], kv[0])):
         if weight <= 1e-12 and not _is_cash_ticker(ticker):
             continue
-        ac = asset_classes.get(ticker)
-        if ac is None:
+        raw_ac = asset_classes.get(ticker)
+        if raw_ac is None:
             if _is_cash_ticker(ticker):
                 ac = "CASH"
             elif _is_approved_crypto(ticker):
                 ac = "CRYPTO"
             else:
                 ac = "EQUITY"
+        else:
+            ac = _normalize_asset_class(str(raw_ac))
 
         ccy = "USD"
         if ticker_currency and ticker in ticker_currency:

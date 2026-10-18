@@ -6,7 +6,7 @@ Welcome. This guide walks you from requesting access to using the Excel add-in. 
 
 - A private Excel add-in whose task pane is hosted in the cloud
 - You register once in a web browser, wait for approval, then sign in from Excel
-- You use **your own** LLM API key (bring your own key / BYOK). That key stays on your computer and is **not** stored on our servers
+- You configure a **primary LLM** (API key and/or local base URL such as Ollama) and an optional **secondary** cloud key. Credentials stay on your computer and are **not** stored on our servers
 - **Corporate SSO is not available for this pilot yet.** Use email/password only.
 
 ---
@@ -28,7 +28,7 @@ If either is missing, email the host and stop here.
   (Microsoft 365 desktop Excel, or a recent Excel for Mac / Excel for Windows).  
   Excel **in a web browser only** (Excel Online) is not supported for this pilot.
 - About 10 minutes for first-time setup
-- Your **own** LLM API key (OpenAI or Anthropic)
+- A **primary LLM**: API key (OpenAI, Anthropic, DeepSeek, Grok, Gemini, …) **and/or** a reachable base URL (e.g. local Ollama). Optional secondary key if you have another provider
 
 ---
 
@@ -38,7 +38,7 @@ If either is missing, email the host and stop here.
 - [ ] Step B — Wait for “you’re approved” from the host  
 - [ ] Step C — Download the add-in manifest (once)  
 - [ ] Step D — Load the add-in in Excel (once per computer)  
-- [ ] Step E — Paste your LLM key, sign in, use Copilot  
+- [ ] Step E — Configure primary (+ optional secondary) LLM, sign in, use Copilot  
 
 ---
 
@@ -113,40 +113,56 @@ Exact menus vary slightly by Excel version. Try this path first:
 
 1. After the add-in loads, look for a **Copilot** / Wealth Blotter button on the ribbon.
 2. Click it to open the **task pane** on the right.
-3. You should see fields for **Email**, **Password**, **LLM API key (BYOK)**, and **Provider**.
+3. You should see **Email**, **Password**, **Primary LLM** (provider, API key, base URL), and **Secondary LLM (optional)**.
 
-The task pane loads from the host’s cloud site. You do **not** run a local server.
+The task pane loads from the host’s cloud site. You do **not** run a local server for the hosted pilot.
 
 If the pane is blank, check your network/VPN and ask the host to confirm the hosted task pane is online.
 
+**Mac tip:** if Insert has no Upload My Add-in, copy `manifest.pilot.xml` into  
+`~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/`, Quit Excel, reopen.  
+Do **not** use Developer → Excel Add-ins (that dialog is only for Analysis ToolPak / Solver).
+
 ---
 
-## Step E — BYOK, sign in, and use the app
+## Step E — LLM setup, sign in, and use the app
 
-### E1. Bring your own LLM key (BYOK)
+### E1. Primary + optional secondary LLM
 
-You already know how to create an API key with your provider. In the Excel task pane:
+In the Excel task pane:
 
-1. Paste the key into **LLM API key (BYOK)**.
-2. Choose **Provider**: OpenAI or Anthropic (match the key you created).
-3. Keep this filled in for your session.  
-   The key is sent only with your requests; it is **not** saved on the host’s server.
+**Primary LLM (required for AI features)**
+
+1. Choose **Primary provider** (Ollama, OpenAI, Anthropic, DeepSeek, Grok, Gemini, …).
+2. Enter a **Primary API key** and/or a **Primary base URL**.  
+   - Example local Ollama: provider `Ollama`, base URL `http://127.0.0.1:11434` (key can be blank).  
+   - Example cloud only: provider `DeepSeek` (or OpenAI / …) + API key.
+3. Primary is the **workhorse** for agents (including in-house research / RAG).
+
+**Secondary LLM (optional)**
+
+1. Choose a secondary provider and paste its API key if you have one.
+2. If secondary is blank, **everything uses primary**.
+
+Keys are sent only with your requests; they are **not** saved on the host’s server.
+
+**Important (hosted vs local):** a base URL of `http://127.0.0.1:11434` only works when the **API process can reach that machine** (typical for local developer setup). A cloud-hosted API **cannot** call Ollama on your laptop.
 
 **Never**
 
-- Put the key in email or chat to the host  
-- Commit the key to GitHub  
-- Paste the key on the request-access web page (keys go **only** in the Excel pane)
+- Put keys in email or chat to the host  
+- Commit keys to GitHub  
+- Paste keys on the request-access web page (LLM fields are **only** in the Excel pane)
 
 ### E2. Sign in
 
 1. Enter the **same email** and **same password** you used on the request-access page.
-2. Click **Sign in**.
+2. Click **Sign in** (primary LLM must be filled in: key and/or base URL).
 3. The status line should show that you are signed in (not “pending” or an error).
 
 If it says **pending approval**, stop and ask the host to approve your account — do not register again.
 
-If it says **Session expired — sign in again**, enter your password again (and keep your BYOK key filled in).
+If it says **Session expired — sign in again**, enter your password again (and keep primary / secondary LLM fields filled in).
 
 ### E3. Use Copilot / portfolio features
 
@@ -163,7 +179,7 @@ Next time you work you only need:
 
 1. Open Excel.
 2. Open the Copilot / Wealth Blotter task pane (re-upload `manifest.pilot.xml` only if the add-in disappeared).
-3. Confirm BYOK key → Sign in → work.
+3. Confirm primary LLM (and optional secondary) → Sign in → work.
 
 ---
 
@@ -175,9 +191,10 @@ Next time you work you only need:
 | Sign in says pending approval | Host has not approved you yet — wait. |
 | Sign in fails after approval | Check email/password; ask host if the API is up. |
 | Task pane blank or won’t load | Confirm you used `manifest.pilot.xml` (hosted), not an old localhost manifest; ask host if the Static Site is deployed. |
-| “Session expired — sign in again” | Sign in again with the same email/password; re-paste BYOK if needed. |
-| LLM / Copilot errors about API key | Re-paste BYOK key; confirm Provider matches the key (OpenAI or Anthropic). |
-| Can’t find Upload My Add-in | Use the Mac Developer path or Windows Trusted Add-in Catalogs steps above. |
+| “Session expired — sign in again” | Sign in again with the same email/password; re-check primary LLM fields. |
+| LLM / Copilot errors about API key / primary | Enter primary API key and/or base URL; provider must match. Secondary is optional. |
+| Ollama / localhost not working on hosted pilot | Expected if the API is on Render — use a cloud primary key, or run the API locally. |
+| Can’t find Upload My Add-in | Mac: use the `wef` folder tip above; Windows: Trusted Add-in Catalogs. Don’t use Excel Add-ins (ToolPak). |
 
 ---
 
@@ -185,7 +202,7 @@ Next time you work you only need:
 
 | Do | Don’t |
 |----|--------|
-| Use your own LLM API key | Ask the host for a shared LLM key |
+| Use your own primary (and optional secondary) LLM credentials | Ask the host for a shared LLM key |
 | Keep your password and key private | Put secrets in email or shared drives |
 | Report bugs to the host | Share other pilots’ emails or client data |
 

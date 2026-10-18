@@ -159,3 +159,52 @@ def test_explicit_risk_on_beats_crash_token() -> None:
         heuristic_scenario_params("risk on despite a brief crash scare").scenario.tone
         == "risk_on"
     )
+
+
+def test_heuristic_next_year_sets_horizon_1y() -> None:
+    params = heuristic_scenario_params("next year media stocks surge")
+    assert params.scenario.investment_horizon == "1Y"
+    assert params.scenario.tone == "risk_on"
+
+
+def test_heuristic_next_12_months_sets_horizon_1y() -> None:
+    params = heuristic_scenario_params(
+        "Inflation hits a level of 5% in the next 12 months in the US"
+    )
+    assert params.scenario.investment_horizon == "1Y"
+
+
+def test_coerce_next_year_overrides_default_1m() -> None:
+    raw = {
+        "message_type": "scenario_params",
+        "user_prompt": "next year media stocks surge",
+        "scenario": {
+            "scenario_name": "Media Surge",
+            "scenario_type": "custom_scenario",
+            "severity": "medium",
+            "tone": "risk_on",
+            "base_currency": "USD",
+            "investment_horizon": "1M",
+            "lookback_window": "8Y",
+            "data_frequency": "daily",
+        },
+        "detected_factors": {
+            "macro_factors": ["equity_rally"],
+            "explicit_market_levels": {},
+            "impacted_asset_classes": ["us_equities"],
+        },
+        "research_context_tags": ["media"],
+        "downstream_instructions": {
+            "for_market_data_service": "ok",
+            "for_research_agents": "ok",
+            "for_quant_agent": "ok",
+        },
+        "confidence": {
+            "scenario_classification_confidence": 0.7,
+            "horizon_selection_confidence": 0.7,
+        },
+    }
+    coerced = _coerce_scenario_payload(
+        raw, user_prompt="next year media stocks surge"
+    )
+    assert coerced["scenario"]["investment_horizon"] == "1Y"

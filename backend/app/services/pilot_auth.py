@@ -256,6 +256,97 @@ def login_pilot(*, email: str, password: str) -> LoginResponse:
     )
 
 
+def refresh_pilot(*, refresh_token: str) -> LoginResponse:
+    """Exchange Supabase refresh_token for a new access_token (keeps Excel sessions alive)."""
+    settings = get_settings()
+    if not settings.supabase_url or not settings.supabase_anon_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": WBP_AUTH_INVALID,
+                "message": "Auth is not configured on this server.",
+            },
+        )
+    token = refresh_token.strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error_code": WBP_AUTH_INVALID,
+                "message": "Missing refresh token.",
+            },
+        )
+    url = f"{settings.supabase_url.rstrip('/')}/auth/v1/token?grant_type=refresh_token"
+    try:
+        with httpx.Client(timeout=30.0) as http:
+            resp = http.post(
+                url,
+                headers={
+                    "apikey": settings.supabase_anon_key,
+                    "Content-Type": "application/json",
+                },
+                json={"refresh_token": token},
+            )
+    except httpx.HTTPError as exc:
+        logger.warning("pilot_refresh_http_error", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": WBP_AUTH_INVALID,
+                "message": "Auth service unreachable.",
+            },
+        ) from exc
+
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error_code": WBP_AUTH_INVALID,
+                "message": "Session expired — sign in again.",
+            },
+        )
+    body = resp.json()
+    access = body.get("access_token")
+    if not access:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error_code": WBP_AUTH_INVALID,
+                "message": "Session expired — sign in again.",
+            },
+        )
+    user = body.get("user") or {}
+    uid = user.get("id")
+    if not uid:
+        # Decode sub from access token via service path if user omitted.
+        from backend.app.core.security import decode_supabase_jwt
+
+        try:
+            claims = decode_supabase_jwt(str(access), settings)
+            uid = claims.get("sub")
+        except HTTPException:
+            uid = None
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error_code": WBP_AUTH_INVALID,
+                "message": "Session expired — sign in again.",
+            },
+        )
+    advisor_id = UUID(str(uid))
+    profile = require_approved_profile(advisor_id)
+    return LoginResponse(
+        access_token=str(access),
+        expires_in=body.get("expires_in"),
+        refresh_token=str(body.get("refresh_token") or token),
+        advisor_id=advisor_id,
+        email=str(profile.get("email") or user.get("email") or ""),
+        approval_status=str(profile.get("approval_status")),  # type: ignore[arg-type]
+        role="advisor",
+    )
+
+
 def me_from_profile(advisor_id: UUID, *, email_fallback: str | None) -> MeResponse:
     profile = fetch_profile(advisor_id)
     if profile is None:

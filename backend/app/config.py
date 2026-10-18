@@ -137,6 +137,23 @@ class Settings(BaseSettings):
         default=True,
         alias="RAG_AUTO_PROCESS_UPLOAD",
     )
+    # Pilot upload controls (option B): kill switch + rate + daily page quota.
+    rag_upload_enabled: bool = Field(default=True, alias="RAG_UPLOAD_ENABLED")
+    rag_upload_rate_limit_per_minute: int = Field(
+        default=5,
+        ge=1,
+        alias="RAG_UPLOAD_RATE_LIMIT_PER_MINUTE",
+    )
+    rag_upload_max_pages_per_day: int = Field(
+        default=50,
+        ge=1,
+        alias="RAG_UPLOAD_MAX_PAGES_PER_DAY",
+    )
+    rag_upload_max_pages_per_file: int = Field(
+        default=50,
+        ge=1,
+        alias="RAG_UPLOAD_MAX_PAGES_PER_FILE",
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:

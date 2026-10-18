@@ -74,8 +74,16 @@ Then open **Environment** and set:
 
 SSO code is shipped but **disabled**. Password + `/request-access` remain the only onboarding path until you deliberately enable SSO (see [SSO_EXTENSION_PLAN.md](SSO_EXTENSION_PLAN.md)).
 
-**LLM provider is flexible — do not hardcode OpenAI on Render.**  
-Each pilot picks **OpenAI or Anthropic** in the Excel task pane (BYOK). The server uses `X-LLM-Provider` + `X-LLM-API-Key` per request. You do **not** need `LLM_PROVIDER`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` on Render for the pilot.
+**LLM provider is flexible — do not hardcode a single vendor on Render.**  
+Each pilot configures a **primary** LLM (API key and/or base URL) and an optional **secondary** key in the Excel task pane. Per request the API accepts:
+
+| Header | Purpose |
+|--------|---------|
+| `X-LLM-Provider` + `X-LLM-API-Key` and/or `X-LLM-Base-URL` | Primary workhorse (ollama, openai, anthropic, deepseek, grok, gemini, …) |
+| `X-LLM-Secondary-Provider` + `X-LLM-Secondary-API-Key` | Optional recommended model; if omitted, all agents use primary |
+
+You do **not** need `LLM_PROVIDER`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` on Render for the pilot.  
+**Note:** `http://127.0.0.1:11434` (laptop Ollama) only works when the API runs where it can reach that host — not from Render to the user’s Mac.
 
 Health check path: `/api/v1/health`
 
@@ -143,7 +151,7 @@ You do **not** give them: GitHub access, service role key, JWT secret, Render cr
    That sets `APPROVED` and emails the pilot the manifest link, setup steps, and a starter CSV.  
    (Apply `backend/app/db/migration_pilot_welcome_email.sql` once for `welcome_email_sent_at`.)
 3. **Alternative:** set `approval_status = APPROVED` in Supabase Table Editor, then use `/admin/pilots` with **Force resend** if you still need the welcome email.
-4. Pilot sideloads `manifest.pilot.xml` **once**, opens the pane, pastes BYOK, signs in.
+4. Pilot sideloads `manifest.pilot.xml` **once**, opens the pane, sets primary LLM (+ optional secondary), signs in.
 5. JWT works; `usage_metrics` rows appear with their `advisor_id`.
 6. Troubleshoot via `usage_metrics` / `audit_events` filtered by `advisor_id`.
 

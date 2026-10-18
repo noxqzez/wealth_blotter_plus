@@ -21,12 +21,24 @@ Hugging Face embeddings → `pgvector` retrieval for investment agents.
 
 1. **Enable `vector`** in Supabase (Database → Extensions).
 2. **Create private Storage bucket** named `research-documents` (or match `RAG_STORAGE_BUCKET`).
-3. **Apply migration:**
+3. **Apply migrations:**
 
 ```bash
 # Supabase SQL editor, or:
 psql "$DATABASE_URL" -f backend/app/db/migration_rag_poc.sql
+psql "$DATABASE_URL" -f backend/app/db/migration_rag_upload_guards.sql
 ```
+
+### Pilot upload guards (option B)
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `RAG_UPLOAD_ENABLED` | `true` | Kill switch — set `false` to block all uploads |
+| `RAG_UPLOAD_RATE_LIMIT_PER_MINUTE` | `5` | Per-advisor rolling 1-minute cap |
+| `RAG_UPLOAD_MAX_PAGES_PER_DAY` | `50` | Per-advisor UTC daily page budget |
+| `RAG_UPLOAD_MAX_PAGES_PER_FILE` | `50` | Max pages in a single PDF |
+
+Page counts are read from the PDF at upload and stored on `document_ingest_jobs.page_count`.
 
 4. **Install RAG deps** (pulls `sentence-transformers` / PyMuPDF / multipart):
 

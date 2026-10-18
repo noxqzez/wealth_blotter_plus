@@ -50,6 +50,10 @@ tmp/
 temp/
 .cache/
 
+# Past Analogue A/B run captures + Tavily query cache (local eval outputs)
+artifacts/past_analogue/**
+!artifacts/past_analogue/.gitkeep
+
 # Per-run CrewAI audit dumps (keep workflow READMEs)
 backend/app/agents/audits/*/local_audit_*.md
 backend/app/agents/audits/*/run_*.md

@@ -23,6 +23,9 @@ def test_welcome_text_includes_manifest_and_no_password() -> None:
     )
     assert "https://example.com/manifest.pilot.xml" in text
     assert "password you registered" in text.lower() or "same email" in text.lower()
+    assert "Primary LLM" in text
+    assert "Secondary LLM" in text
+    assert "Ollama" in text
     assert "sk-" not in text
 
 

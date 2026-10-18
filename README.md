@@ -65,16 +65,44 @@ See [backend/app/db/COMPLIANCE_PHASE1.md](backend/app/db/COMPLIANCE_PHASE1.md) a
 ### Research RAG (POC)
 
 Upload research PDFs → classify (US/HK/Crypto/Neither) → Hugging Face embed →
-`pgvector` retrieve:
+`pgvector` retrieve. Uploads are **per `advisor_id`** (not shared across pilots).
 
 ```bash
 # Supabase: enable vector + create private bucket research-documents
 # Apply backend/app/db/migration_rag_poc.sql
+# Apply backend/app/db/migration_rag_upload_guards.sql  # page_count + daily quota
 uv sync --extra rag
 # POST /api/v1/documents/upload | /jobs/{id} | /retrieve
 ```
 
-See [backend/app/db/RAG_POC.md](backend/app/db/RAG_POC.md).
+**Pilot upload guards (option B):** kill switch `RAG_UPLOAD_ENABLED`, rate limit
+(default 5/min), **50 PDF pages/day** and **50 pages/file** (UTC). Details:
+[backend/app/db/RAG_POC.md](backend/app/db/RAG_POC.md).
+
+### Past Analogue (historical match)
+
+Opt-in scenario step (`feature_flags.past_analogue`): Tavily (or public fallback)
++ Ollama extract → admit date windows → **50/50 blend** of strategist Opti Folio
+with analogue-conditioned weights (trading rules still enforced). Lineage lives in
+`scenario_runs.strategy_view.past_analogue` and `audit_events` (`past_analogue_agent`).
+
+```bash
+# .env: TAVILY_API_KEY=…  (optional; unset = baseline public search)
+# Ollama must be running for extract
+# Streamlit: toggle “Enable Past Analogue”
+uv run python scripts/eval_past_analogue.py list
+```
+
+Eval / A-B pack: [docs/PAST_ANALOGUE_EVAL.md](docs/PAST_ANALOGUE_EVAL.md).
+
+## What’s in this snapshot (recent)
+
+- Dual LLM BYOK (primary + optional secondary) in Excel / API headers
+- Past Analogue search → admit → apply with mix; chat one-liner + jsonb audit
+- Scenario talking points: market color preferred over canned house summary
+- RAG upload kill switch / rate limit / 50 pages/day
+- Pilot welcome email + request-access / admin pilots flow
+- Horizon parsing for “next 12 months” → `1Y`; ord_blotter BUY/SELL colors
 
 ## Pilot users
 
@@ -83,7 +111,7 @@ See [backend/app/db/RAG_POC.md](backend/app/db/RAG_POC.md).
 1. Signup: `https://wealth-blotter-plus.onrender.com/request-access` (or your API Render URL)
 2. Manifest: `https://wealth-blotter-plus-excel.onrender.com/manifest.pilot.xml` (or your Static Site URL)
 3. Tell them to follow **[PILOT.md](PILOT.md)**  
-   (request access → approval → sideload manifest once → BYOK + sign in in Excel)
+   (request access → approval → sideload manifest once → primary LLM + optional secondary → sign in in Excel)
 
 Host/operator Render + Supabase checklist: [docs/PILOT_PHASE1.md](docs/PILOT_PHASE1.md).  
 Approve + welcome email UI: `https://<api>.onrender.com/admin/pilots` (needs `ADMIN_API_KEY` + Resend).

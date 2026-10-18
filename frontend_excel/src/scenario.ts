@@ -7,7 +7,11 @@
  */
 
 import DOMPurify from "dompurify";
-import { authHeaders, handleUnauthorized } from "./auth";
+import {
+  authHeaders,
+  ensureFreshSession,
+  handleUnauthorized,
+} from "./auth";
 
 const PARAMS_SHEET = "scenario_params";
 /** Legacy name from early WF-02; still readable so old workbooks keep working. */
@@ -414,14 +418,10 @@ function fmt(n: number | null | undefined): string | number {
   return Number(n.toFixed(4));
 }
 
-/** Equity: whole shares. Crypto/cash: 2 dp. */
-function qty(n: number | null | undefined, assetClass?: string): string | number {
+/** Always 2 dp so Excel #,##0.00 shows "##.##". */
+function qty(n: number | null | undefined, _assetClass?: string): string | number {
   if (n === null || n === undefined || Number.isNaN(n)) return "";
-  const ac = (assetClass || "").toUpperCase();
-  if (ac === "CASH" || ac === "CRYPTO") {
-    return Number(Number(n).toFixed(2));
-  }
-  return Math.trunc(Number(n));
+  return Number(Number(n).toFixed(2));
 }
 
 /** Match BASE scratchpad: nominal / money at 2 dp. */
@@ -436,10 +436,44 @@ function pct(n: number | null | undefined): string | number {
   return Number((n * 100).toFixed(2));
 }
 
-function qtyNumberFormat(assetClass?: string): string {
-  const ac = (assetClass || "").toUpperCase();
-  if (ac === "CRYPTO" || ac === "CASH") return "#,##0.00";
-  return "#,##0";
+function qtyNumberFormat(_assetClass?: string): string {
+  return "#,##0.00";
+}
+
+const HEADER_FILL_CYAN = "BDD7EE";
+
+function applyContinuousBorder(range: Excel.Range): void {
+  const edges: Excel.BorderIndex[] = [
+    Excel.BorderIndex.edgeTop,
+    Excel.BorderIndex.edgeBottom,
+    Excel.BorderIndex.edgeLeft,
+    Excel.BorderIndex.edgeRight,
+    Excel.BorderIndex.insideHorizontal,
+    Excel.BorderIndex.insideVertical,
+  ];
+  for (const edge of edges) {
+    const border = range.format.borders.getItem(edge);
+    border.style = Excel.BorderLineStyle.continuous;
+    border.color = "000000";
+    border.weight = Excel.BorderWeight.thin;
+  }
+}
+
+function styleHeaderRow(
+  sheet: Excel.Worksheet,
+  rowIndex: number,
+  headers: string[],
+): void {
+  const width = headers.length;
+  if (width <= 0) return;
+  const headerRange = sheet.getRangeByIndexes(rowIndex, 0, 1, width);
+  headerRange.format.font.bold = true;
+  headerRange.format.horizontalAlignment = Excel.HorizontalAlignment.center;
+  for (let col = 0; col < width; col++) {
+    if (!headers[col]) continue;
+    sheet.getRangeByIndexes(rowIndex, col, 1, 1).format.fill.color =
+      HEADER_FILL_CYAN;
+  }
 }
 
 async function writeRebalancedPortfolio(
@@ -470,14 +504,16 @@ async function writeRebalancedPortfolio(
   }
   rows.push([]);
   rows.push(["opti_folio"]);
-  rows.push([
+  const optiHeader = [
     "ticker",
     "asset_class",
     "currency",
     "quantity",
     "nominal_value",
     "Pct weight (USD)",
-  ]);
+  ];
+  const optiHeaderRow = rows.length;
+  rows.push(optiHeader);
   const optiStartRow = rows.length;
   for (const p of positions) {
     rows.push([
@@ -511,16 +547,24 @@ async function writeRebalancedPortfolio(
     await clearUsed(sheet, context);
     const range = sheet.getRangeByIndexes(0, 0, padded.length, width);
     range.values = padded;
+    styleHeaderRow(sheet, 0, ["metrics", "base", "opti", "delta"]);
+    applyContinuousBorder(
+      sheet.getRangeByIndexes(0, 0, 1 + metricKeys.length, 4),
+    );
+    styleHeaderRow(sheet, optiHeaderRow, optiHeader);
     if (optiCount > 0) {
-      const qtyFormats = positions.map((p) => [qtyNumberFormat(p.asset_class)]);
-      sheet.getRangeByIndexes(optiStartRow, 3, optiCount, 1).numberFormat = qtyFormats;
-      sheet.getRangeByIndexes(optiStartRow, 4, optiCount, 1).numberFormat = Array.from(
-        { length: optiCount },
-        () => ["#,##0.00"],
+      sheet.getRangeByIndexes(optiStartRow, 3, optiCount, 1).numberFormat =
+        Array.from({ length: optiCount }, () => [qtyNumberFormat()]);
+      sheet.getRangeByIndexes(optiStartRow, 4, optiCount, 1).numberFormat =
+        Array.from({ length: optiCount }, () => ["#,##0.00"]);
+      sheet.getRangeByIndexes(optiStartRow, 5, optiCount, 1).numberFormat =
+        Array.from({ length: optiCount }, () => ["0.00"]);
+      applyContinuousBorder(
+        sheet.getRangeByIndexes(optiHeaderRow, 0, 1 + optiCount, optiHeader.length),
       );
-      sheet.getRangeByIndexes(optiStartRow, 5, optiCount, 1).numberFormat = Array.from(
-        { length: optiCount },
-        () => ["0.00"],
+    } else {
+      applyContinuousBorder(
+        sheet.getRangeByIndexes(optiHeaderRow, 0, 1, optiHeader.length),
       );
     }
     range.format.autofitColumns();
@@ -577,11 +621,36 @@ async function writeOrdBlotter(body: RunBody, _scenarioRunId: string): Promise<v
     await clearUsed(sheet, context);
     const range = sheet.getRangeByIndexes(0, 0, padded.length, width);
     range.values = padded;
+    const blotterHeader = padded[0].map((h) => String(h ?? ""));
+    styleHeaderRow(sheet, 0, blotterHeader);
     if (tradesCount > 0) {
-      // quantity is column index 6 after new columns
-      const tradeQtyFormats = trades.map((t) => [qtyNumberFormat(t.asset_class)]);
       sheet.getRangeByIndexes(tradesStartRow, 6, tradesCount, 1).numberFormat =
-        tradeQtyFormats;
+        Array.from({ length: tradesCount }, () => [qtyNumberFormat()]);
+      sheet.getRangeByIndexes(tradesStartRow, 8, tradesCount, 1).numberFormat =
+        Array.from({ length: tradesCount }, () => ["0.00"]);
+      sheet.getRangeByIndexes(tradesStartRow, 9, tradesCount, 1).numberFormat =
+        Array.from({ length: tradesCount }, () => ["0.00"]);
+      // side column (index 5): BUY bold green, SELL bold red
+      const sideCol = 5;
+      for (let i = 0; i < tradesCount; i++) {
+        const side = String(trades[i]?.side ?? "")
+          .trim()
+          .toUpperCase();
+        const cell = sheet.getRangeByIndexes(tradesStartRow + i, sideCol, 1, 1);
+        cell.format.font.bold = true;
+        if (side === "BUY") {
+          cell.format.font.color = "008000";
+        } else if (side === "SELL") {
+          cell.format.font.color = "CC0000";
+        }
+      }
+      applyContinuousBorder(
+        sheet.getRangeByIndexes(0, 0, 1 + tradesCount, blotterHeader.length),
+      );
+    } else {
+      applyContinuousBorder(
+        sheet.getRangeByIndexes(0, 0, 1, blotterHeader.length),
+      );
     }
     range.format.autofitColumns();
     await context.sync();
@@ -595,18 +664,25 @@ async function postJson(
   timeoutMs: number,
   correlationId: string,
 ): Promise<{ ok: boolean; status: number; text: string }> {
+  await ensureFreshSession();
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers: authHeaders(correlationId),
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    const text = await res.text();
+    const doFetch = () =>
+      fetch(`${API_BASE}${path}`, {
+        method,
+        headers: authHeaders(correlationId),
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    let res = await doFetch();
+    let text = await res.text();
     if (res.status === 401) {
-      handleUnauthorized(401);
+      const forcedSignIn = await handleUnauthorized(401);
+      if (!forcedSignIn) {
+        res = await doFetch();
+        text = await res.text();
+      }
     }
     return { ok: res.ok, status: res.status, text };
   } finally {
@@ -843,14 +919,18 @@ export function initScenario(opts: {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), PDF_TIMEOUT_MS);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/scenarios/pdf`, {
-        method: "POST",
-        headers: authHeaders(correlationId),
-        body: JSON.stringify({ scenario_run_id: runId }),
-        signal: controller.signal,
-      });
+      await ensureFreshSession();
+      const doFetch = () =>
+        fetch(`${API_BASE}/api/v1/scenarios/pdf`, {
+          method: "POST",
+          headers: authHeaders(correlationId),
+          body: JSON.stringify({ scenario_run_id: runId }),
+          signal: controller.signal,
+        });
+      let res = await doFetch();
       if (res.status === 401) {
-        handleUnauthorized(401);
+        const forcedSignIn = await handleUnauthorized(401);
+        if (!forcedSignIn) res = await doFetch();
       }
       if (!res.ok) {
         const text = await res.text();

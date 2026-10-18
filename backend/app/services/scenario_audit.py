@@ -34,6 +34,7 @@ STEP_QUANT = "quant_agent_optimizer"
 STEP_QUANT_SAFETY = "quant_safety_gate"
 STEP_COMPLIANCE = "compliance_resolve"
 STEP_RISK_OPTI = "risk_engine_opti"
+STEP_PAST_ANALOGUE = "past_analogue_agent"
 STEP_CONTENT = "content_agent"
 STEP_RUN_COMPLETE = "scenario_run_complete"
 STEP_RUN_FAILED = "scenario_run_failed"
@@ -50,6 +51,7 @@ STEP_ORDER: dict[str, int] = {
     STEP_QUANT: 80,
     STEP_COMPLIANCE: 90,
     STEP_RISK_OPTI: 100,
+    STEP_PAST_ANALOGUE: 105,
     STEP_CONTENT: 110,
     STEP_RUN_COMPLETE: 120,
     STEP_RUN_FAILED: 120,

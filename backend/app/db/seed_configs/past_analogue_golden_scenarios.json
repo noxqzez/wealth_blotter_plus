@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "description": "Frozen prompts for Past Analogue A/B eval. Same portfolio BASE + flags across runs.",
+  "scoring_note": "Larger L1 DeltaW_past_analogue is NOT better. Prefer admit quality, citations, stability, false-positive rate.",
+  "scenarios": [
+    {
+      "id": "rates_hike_50bp",
+      "bucket": "quantified_macro",
+      "prompt": "US policy interest rates rise by 0.50% (50 basis points) over the next month.",
+      "expect_admit": true,
+      "human_rubric": "Admit windows near real hiking episodes (e.g. 2022–2023). Reject random calm periods."
+    },
+    {
+      "id": "equity_crash_15",
+      "bucket": "equity_shock",
+      "prompt": "US equities fall about 15% in a sharp risk-off month with rising volatility.",
+      "expect_admit": true,
+      "human_rubric": "Prefer crisis windows (e.g. Mar-2020, late-2018, 2022 bear). Not mild pullbacks."
+    },
+    {
+      "id": "btc_drop_30",
+      "bucket": "crypto",
+      "prompt": "Bitcoin drops roughly 30% over six weeks in a risk-off crypto selloff.",
+      "expect_admit": true,
+      "human_rubric": "Windows should overlap known crypto drawdowns with Yahoo coverage for BTC-USD."
+    },
+    {
+      "id": "republican_wins",
+      "bucket": "political_labeled",
+      "prompt": "A Republican wins the United States presidential election.",
+      "expect_admit": true,
+      "human_rubric": "Expect post-election windows around Nov 2016 and/or Nov 2024 (and similar). Cite news/history URLs."
+    },
+    {
+      "id": "brent_120_geo",
+      "bucket": "oil_geo",
+      "prompt": "Brent crude spikes toward $120 on a Middle East geopolitical escalation.",
+      "expect_admit": true,
+      "human_rubric": "Oil-shock windows (e.g. 2022 invasion spike). Not unrelated equity rallies."
+    },
+    {
+      "id": "vague_risk_off",
+      "bucket": "vague_regime",
+      "prompt": "Risk-off environment: correlations spike and investors flee to cash.",
+      "expect_admit": true,
+      "human_rubric": "Broader regime windows OK; similarity should be moderate, not overconfident."
+    },
+    {
+      "id": "svb_style_bank",
+      "bucket": "named_crisis",
+      "prompt": "A sudden regional US bank stress event triggers funding fears and risk-off in equities and crypto.",
+      "expect_admit": true,
+      "human_rubric": "Mar-2023 SVB-era window is a strong match if cited."
+    },
+    {
+      "id": "negative_chitchat",
+      "bucket": "negative_control",
+      "prompt": "What is the weather in Singapore this weekend and recommend a restaurant?",
+      "expect_admit": false,
+      "human_rubric": "Must not admit high-similarity market periods. Empty/rejected hits = pass."
+    },
+    {
+      "id": "negative_nonsense",
+      "bucket": "negative_control",
+      "prompt": "Purple elephant portfolio dance with quantum bananas for lunch.",
+      "expect_admit": false,
+      "human_rubric": "Must not invent credible historical analogues."
+    },
+    {
+      "id": "fed_pivot_cut",
+      "bucket": "quantified_macro",
+      "prompt": "The Federal Reserve cuts the policy rate by 25 basis points and signals a dovish pivot.",
+      "expect_admit": true,
+      "human_rubric": "Cutting-cycle windows (e.g. late 2019, 2024 cuts) preferred over hiking cycles."
+    }
+  ]
+}

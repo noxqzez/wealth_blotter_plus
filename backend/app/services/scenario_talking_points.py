@@ -105,17 +105,19 @@ def build_talking_points(
     points.append(perf)
 
     sv = _as_strategy_view(strategy_view)
-    summary_bullet = _strategy_summary_bullet(sv)
-    if summary_bullet is not None:
-        points.append(summary_bullet)
-
     color = _market_color_bullets(
         staged_trades or [],
         sv,
         opti_folio=opti_folio or [],
         max_bullets=max_market_bullets,
     )
-    points.extend(color)
+    # Prefer trade-gated strategist color; canned house summary only as fallback.
+    if color:
+        points.extend(color)
+    else:
+        summary_bullet = _strategy_summary_bullet(sv)
+        if summary_bullet is not None:
+            points.append(summary_bullet)
     return [
         TalkingPoint(bullet=sanitize_client_commentary(p.bullet), driver=p.driver)
         for p in points

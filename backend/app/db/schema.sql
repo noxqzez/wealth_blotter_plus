@@ -656,6 +656,8 @@ CREATE TABLE IF NOT EXISTS document_ingest_jobs (
                         )),
     error_message       TEXT,
     document_id         UUID,
+    page_count          INTEGER
+                        CHECK (page_count IS NULL OR page_count >= 0),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     started_at          TIMESTAMPTZ,
@@ -667,6 +669,8 @@ CREATE INDEX IF NOT EXISTS idx_document_ingest_jobs_status
     ON document_ingest_jobs (status, created_at);
 CREATE INDEX IF NOT EXISTS idx_document_ingest_jobs_advisor_id
     ON document_ingest_jobs (advisor_id);
+CREATE INDEX IF NOT EXISTS idx_document_ingest_jobs_advisor_created
+    ON document_ingest_jobs (advisor_id, created_at);
 
 CREATE TABLE IF NOT EXISTS document_registry (
     id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),

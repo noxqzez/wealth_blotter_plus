@@ -82,6 +82,20 @@
         border: 1px solid #b7cbe0;
         color: var(--navy);
       }
+      .bubble.error {
+        align-self: flex-start;
+        background: var(--err-bg);
+        border: 1px solid var(--err-border);
+        color: var(--danger);
+        white-space: pre-wrap;
+      }
+      .bubble.warning {
+        align-self: flex-start;
+        background: var(--warn-bg);
+        border: 1px solid var(--warn-border);
+        color: #5c4800;
+        white-space: pre-wrap;
+      }
       .bubble .role {
         display: block;
         font-size: 10px;
@@ -177,29 +191,42 @@
       }
       button.secondary {
         background: var(--navy-mid);
+        opacity: 0.8;
       }
       button.secondary:not(:disabled):hover {
         background: #173a5a;
+        opacity: 1;
       }
       button.danger {
         background: var(--danger);
+        opacity: 0.8;
       }
       button.danger:not(:disabled):hover {
         background: var(--danger-hover);
+        opacity: 1;
       }
       button.rating {
         background: #2f4f6f;
         letter-spacing: 0.02em;
+        opacity: 0.8;
       }
       button.rating:not(:disabled):hover {
         background: #3a6288;
+        opacity: 1;
+      }
+      /* Primary / next-step CTA stays fully opaque; secondary actions ~20% dimmed. */
+      .action-row > button:not(.secondary):not(.danger):not(.rating):not(.star) {
+        opacity: 1;
       }
       .star-rating {
         display: inline-flex;
         align-items: center;
         gap: 2px;
         padding: 2px 4px;
-        margin-right: 4px;
+        margin-left: 2px;
+        width: 100%;
+        flex-basis: 100%;
+        order: 99;
       }
       .star-rating button.star {
         background: transparent;
@@ -325,41 +352,148 @@
         color: var(--danger);
         font-weight: 600;
       }
+      .pilot-help {
+        margin: 0;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      .pilot-section-label {
+        margin-top: 6px;
+        font-weight: 650;
+        font-size: 11px;
+        color: var(--navy-mid);
+      }
+      .pilot-auth-bar {
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .pilot-auth.collapsed .pilot-auth-bar {
+        display: flex;
+      }
+      .pilot-auth.collapsed .pilot-auth-body {
+        display: none;
+      }
+      .pilot-auth-bar-meta {
+        font-size: 11px;
+        color: var(--navy);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1 1 auto;
+      }
+      .pilot-auth-bar-meta strong {
+        font-weight: 650;
+      }
+      .pilot-auth-bar-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .pilot-auth-bar-actions button {
+        font: inherit;
+        font-size: 11px;
+        padding: 4px 8px;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--navy);
+        cursor: pointer;
+      }
+      .pilot-auth-bar-actions button.danger {
+        color: var(--danger);
+        border-color: #e0b4b7;
+      }
     </style>
   </head>
   <body>
     <div id="app">
       <div id="pilotAuth" class="pilot-auth" aria-label="Pilot sign-in">
-        <div class="pilot-auth-title">Pilot access</div>
-        <label class="pilot-field">
-          Email
-          <input id="pilotEmail" type="email" autocomplete="username" placeholder="you@firm.com" />
-        </label>
-        <label class="pilot-field">
-          Password
-          <input id="pilotPassword" type="password" autocomplete="current-password" />
-        </label>
-        <label class="pilot-field">
-          LLM API key (BYOK)
-          <input id="pilotLlmKey" type="password" autocomplete="off" placeholder="sk-…" />
-        </label>
-        <label class="pilot-field">
-          Provider
-          <select id="pilotLlmProvider">
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-          </select>
-        </label>
-        <div class="pilot-auth-actions">
-          <button type="button" id="pilotRegisterBtn" class="secondary">Register</button>
-          <button type="button" id="pilotLoginBtn" class="primary">Sign in</button>
-          <button type="button" id="pilotLogoutBtn" class="secondary">Sign out</button>
+        <div id="pilotAuthBar" class="pilot-auth-bar" aria-live="polite">
+          <div class="pilot-auth-bar-meta">
+            Signed in as <strong id="pilotAuthBarEmail">advisor</strong>
+          </div>
+          <div class="pilot-auth-bar-actions">
+            <button type="button" id="pilotAuthExpandBtn" title="Show login and LLM settings">
+              Settings
+            </button>
+            <button type="button" id="pilotAuthBarLogoutBtn" class="danger">Sign out</button>
+          </div>
         </div>
-        <div id="pilotSsoBox" class="pilot-sso-box" hidden>
-          <div class="pilot-auth-title">SSO (optional)</div>
-          <div id="pilotSsoActions" class="pilot-auth-actions"></div>
+        <div id="pilotAuthBody" class="pilot-auth-body">
+          <div class="pilot-auth-title">Pilot access</div>
+          <p class="pilot-help">
+            <strong>Primary LLM (required for AI features):</strong> enter an API key
+            <em>or</em> a local/open-weight base URL (e.g. Ollama
+            <code>http://127.0.0.1:11434</code>). This is the workhorse for agents
+            (including in-house research / RAG).
+            <br />
+            <strong>Secondary LLM (optional):</strong> another provider key if you have
+            one (OpenAI, Anthropic, DeepSeek, Grok, Gemini…). If blank, everything
+            uses primary.
+          </p>
+          <label class="pilot-field">
+            Email
+            <input id="pilotEmail" type="email" autocomplete="username" placeholder="you@firm.com" />
+          </label>
+          <label class="pilot-field">
+            Password
+            <input id="pilotPassword" type="password" autocomplete="current-password" />
+          </label>
+          <div class="pilot-section-label">Primary LLM</div>
+          <label class="pilot-field">
+            Primary provider
+            <select id="pilotPrimaryProvider">
+              <option value="ollama">Ollama (local / open-weight)</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="grok">Grok (xAI)</option>
+              <option value="gemini">Gemini</option>
+            </select>
+          </label>
+          <label class="pilot-field">
+            Primary API key (if not using local base URL only)
+            <input id="pilotPrimaryKey" type="password" autocomplete="off" placeholder="sk-… / API key (optional for Ollama)" />
+          </label>
+          <label class="pilot-field">
+            Primary base URL (Ollama or OpenAI-compatible)
+            <input id="pilotPrimaryBaseUrl" type="url" autocomplete="off" placeholder="http://127.0.0.1:11434" />
+          </label>
+          <div class="pilot-section-label">Secondary LLM (optional)</div>
+          <label class="pilot-field">
+            Secondary provider
+            <select id="pilotSecondaryProvider">
+              <option value="">— none —</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="grok">Grok (xAI)</option>
+              <option value="gemini">Gemini</option>
+            </select>
+          </label>
+          <label class="pilot-field">
+            Secondary API key
+            <input id="pilotSecondaryKey" type="password" autocomplete="off" placeholder="Optional" />
+          </label>
+          <div class="pilot-auth-actions">
+            <button type="button" id="pilotRegisterBtn" class="secondary">Register</button>
+            <button type="button" id="pilotLoginBtn" class="primary">Sign in</button>
+            <button type="button" id="pilotLogoutBtn" class="secondary">Sign out</button>
+            <button type="button" id="pilotAuthCollapseBtn" class="secondary" hidden>
+              Hide settings
+            </button>
+          </div>
+          <div id="pilotSsoBox" class="pilot-sso-box" hidden>
+            <div class="pilot-auth-title">SSO (optional)</div>
+            <div id="pilotSsoActions" class="pilot-auth-actions"></div>
+          </div>
+          <p id="pilotAuthStatus" class="pilot-auth-status" aria-live="polite"></p>
         </div>
-        <p id="pilotAuthStatus" class="pilot-auth-status" aria-live="polite"></p>
       </div>
       <div id="transcript" role="log" aria-live="polite" aria-relevant="additions"></div>
       <div class="pane-footer">

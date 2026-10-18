@@ -3,7 +3,12 @@
  */
 
 import DOMPurify from "dompurify";
-import { authHeaders, handleUnauthorized, wirePilotAuthPanel } from "./auth";
+import {
+  authHeaders,
+  ensureFreshSession,
+  handleUnauthorized,
+  wirePilotAuthPanel,
+} from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -65,6 +70,12 @@ export type ExcelWriteSpec = {
   activate?: boolean;
   hide_source_sheet?: string | null;
   column_number_formats?: Record<string, string>;
+  header_fill_colors?: Record<string, string>;
+  /** 0-based header row indexes; empty ⇒ row 0 when styling is applied. */
+  header_row_indexes?: number[];
+  header_bold?: boolean;
+  header_horizontal_alignment?: "left" | "center" | "right" | null;
+  table_border?: boolean;
 };
 
 export type DownloadArtifact = {
@@ -200,6 +211,13 @@ function isAbortError(err: unknown): boolean {
 
 function setStatus(text: string, isError = false): void {
   if (!els.status) return;
+  // Surface errors in the chat transcript (not only the footer strip).
+  if (isError && text.trim()) {
+    appendBubble("error", text.trim());
+    els.status.textContent = "";
+    els.status.classList.remove("error");
+    return;
+  }
   els.status.textContent = sanitize(text);
   els.status.classList.toggle("error", isError);
 }
@@ -289,13 +307,17 @@ function formatApiError(
 // UI render
 // ---------------------------------------------------------------------------
 
-function appendBubble(role: "assistant" | "user", content: string): void {
+function appendBubble(
+  role: "assistant" | "user" | "error" | "warning",
+  content: string,
+): void {
   if (!els.transcript) return;
   const bubble = document.createElement("div");
   bubble.className = `bubble ${role}`;
   const roleLabel = document.createElement("span");
   roleLabel.className = "role";
-  roleLabel.textContent = role === "assistant" ? "Copilot" : "You";
+  roleLabel.textContent =
+    role === "user" ? "You" : role === "error" ? "Error" : role === "warning" ? "Notice" : "Copilot";
   const body = document.createElement("div");
   body.className = "bubble-body";
   if (role === "assistant") {
@@ -326,14 +348,19 @@ function renderGuardrails(guardrails: GuardrailCheck[]): void {
   if (!els.guardrails) return;
   els.guardrails.replaceChildren();
   for (const g of guardrails) {
-    const banner = document.createElement("div");
-    const sev =
-      g.severity === "blocking_error" || g.severity === "warning" || g.severity === "info"
-        ? g.severity
-        : "info";
-    banner.className = `guard ${sev}`;
     let text = g.message;
     if (g.suggested_fix) text += `\nSuggested fix: ${g.suggested_fix}`;
+    if (g.severity === "blocking_error") {
+      appendBubble("error", text);
+      continue;
+    }
+    if (g.severity === "warning") {
+      appendBubble("warning", text);
+      continue;
+    }
+    // Soft info stays in the compact footer strip.
+    const banner = document.createElement("div");
+    banner.className = "guard info";
     banner.textContent = sanitize(text);
     els.guardrails.appendChild(banner);
   }
@@ -418,9 +445,6 @@ function renderActions(actions: ActionTrigger[]): void {
   lastActions = actions;
   if (!els.actions) return;
   els.actions.replaceChildren();
-  if (showStarRating) {
-    renderStarRatingWidget();
-  }
   for (const action of actions) {
     // Star scores are handled by the compact widget, not separate buttons.
     if (action.id.startsWith("rate_stars_")) continue;
@@ -443,6 +467,10 @@ function renderActions(actions: ActionTrigger[]): void {
       void handleAction(action);
     });
     els.actions.appendChild(btn);
+  }
+  // Rating sits below action buttons so Place All Orders stays on top.
+  if (showStarRating) {
+    renderStarRatingWidget();
   }
 }
 
@@ -622,12 +650,84 @@ async function readOrdBlotterRows(): Promise<OrderBlotterRow[]> {
   });
 }
 
+function normalizeFillHex(raw: string): string {
+  const cleaned = raw.trim().replace(/^#/, "").toUpperCase();
+  return cleaned.length === 6 ? cleaned : raw.trim();
+}
+
+function applyContinuousBorder(range: Excel.Range): void {
+  const edges: Excel.BorderIndex[] = [
+    Excel.BorderIndex.edgeTop,
+    Excel.BorderIndex.edgeBottom,
+    Excel.BorderIndex.edgeLeft,
+    Excel.BorderIndex.edgeRight,
+    Excel.BorderIndex.insideHorizontal,
+    Excel.BorderIndex.insideVertical,
+  ];
+  for (const edge of edges) {
+    const border = range.format.borders.getItem(edge);
+    border.style = Excel.BorderLineStyle.continuous;
+    border.color = "000000";
+    border.weight = Excel.BorderWeight.thin;
+  }
+}
+
+function resolveHeaderRowIndexes(
+  spec: ExcelWriteSpec,
+  rowCount: number,
+): number[] {
+  const raw = (spec.header_row_indexes ?? []).filter(
+    (i) => Number.isInteger(i) && i >= 0 && i < rowCount,
+  );
+  if (raw.length > 0) return [...new Set(raw)].sort((a, b) => a - b);
+  const needsHeaderStyle =
+    Boolean(spec.header_bold) ||
+    Boolean(spec.header_horizontal_alignment) ||
+    Object.keys(spec.header_fill_colors ?? {}).length > 0 ||
+    Object.keys(spec.column_number_formats ?? {}).length > 0;
+  return needsHeaderStyle && rowCount > 0 ? [0] : [];
+}
+
+function lookupHeaderFill(
+  headerFills: Record<string, string>,
+  headerName: string,
+): string | undefined {
+  if (!headerName) return undefined;
+  if (headerFills[headerName]) return headerFills[headerName];
+  const norm = normalizeHeader(headerName);
+  return Object.entries(headerFills).find(
+    ([k]) => normalizeHeader(k) === norm,
+  )?.[1];
+}
+
+function dataRowSpan(
+  padded: unknown[][],
+  headerRow: number,
+  nextHeaderRow: number | undefined,
+): { start: number; count: number } | null {
+  const start = headerRow + 1;
+  if (start >= padded.length) return null;
+  const hardEnd = nextHeaderRow ?? padded.length;
+  let end = start;
+  while (end < hardEnd) {
+    const row = padded[end] ?? [];
+    const empty = row.every(
+      (cell) => cell === "" || cell === null || cell === undefined,
+    );
+    if (empty) break;
+    end += 1;
+  }
+  const count = end - start;
+  return count > 0 ? { start, count } : null;
+}
+
 async function applyExcelWrite(spec: ExcelWriteSpec): Promise<void> {
   const sheetName = spec.sheet_name?.trim();
   if (!sheetName) return;
   const values = spec.values ?? [];
   const activate = spec.activate !== false;
   const formats = spec.column_number_formats ?? {};
+  const headerFills = spec.header_fill_colors ?? {};
   const hideSource = spec.hide_source_sheet?.trim() || null;
 
   await Excel.run(async (context) => {
@@ -657,20 +757,65 @@ async function applyExcelWrite(spec: ExcelWriteSpec): Promise<void> {
       const range = sheet.getRangeByIndexes(0, 0, padded.length, width);
       range.values = padded;
 
-      if (padded.length > 1 && Object.keys(formats).length > 0) {
-        const headers = padded[0].map((h) => String(h ?? ""));
-        const dataRows = padded.length - 1;
-        for (const [headerName, numFmt] of Object.entries(formats)) {
-          const col = headers.findIndex(
-            (h) => h === headerName || normalizeHeader(h) === normalizeHeader(headerName),
-          );
-          if (col < 0) continue;
-          sheet.getRangeByIndexes(1, col, dataRows, 1).numberFormat = Array.from(
-            { length: dataRows },
-            () => [numFmt],
+      const headerRows = resolveHeaderRowIndexes(spec, padded.length);
+      for (let hi = 0; hi < headerRows.length; hi++) {
+        const headerRow = headerRows[hi];
+        const nextHeader = headerRows[hi + 1];
+        const headers = (padded[headerRow] ?? []).map((h) => String(h ?? ""));
+        const headerRange = sheet.getRangeByIndexes(headerRow, 0, 1, width);
+        if (spec.header_bold) {
+          headerRange.format.font.bold = true;
+        }
+        if (spec.header_horizontal_alignment === "center") {
+          headerRange.format.horizontalAlignment =
+            Excel.HorizontalAlignment.center;
+        } else if (spec.header_horizontal_alignment === "right") {
+          headerRange.format.horizontalAlignment =
+            Excel.HorizontalAlignment.right;
+        } else if (spec.header_horizontal_alignment === "left") {
+          headerRange.format.horizontalAlignment =
+            Excel.HorizontalAlignment.left;
+        }
+
+        if (Object.keys(headerFills).length > 0) {
+          for (let col = 0; col < headers.length; col++) {
+            const fill = lookupHeaderFill(headerFills, headers[col]);
+            if (!fill) continue;
+            sheet.getRangeByIndexes(headerRow, col, 1, 1).format.fill.color =
+              normalizeFillHex(fill);
+          }
+        }
+
+        if (Object.keys(formats).length > 0) {
+          const span = dataRowSpan(padded, headerRow, nextHeader);
+          if (span) {
+            for (const [headerName, numFmt] of Object.entries(formats)) {
+              const col = headers.findIndex(
+                (h) =>
+                  h === headerName ||
+                  normalizeHeader(h) === normalizeHeader(headerName),
+              );
+              if (col < 0) continue;
+              sheet.getRangeByIndexes(span.start, col, span.count, 1).numberFormat =
+                Array.from({ length: span.count }, () => [numFmt]);
+            }
+          }
+        }
+
+        if (spec.table_border) {
+          const span = dataRowSpan(padded, headerRow, nextHeader);
+          const rows = 1 + (span?.count ?? 0);
+          let lastCol = -1;
+          for (let c = 0; c < headers.length; c++) {
+            if (headers[c].trim() !== "") lastCol = c;
+          }
+          const usedCols = Math.max(1, lastCol + 1);
+          applyContinuousBorder(
+            sheet.getRangeByIndexes(headerRow, 0, rows, usedCols),
           );
         }
       }
+
       range.format.autofitColumns();
     }
 
@@ -735,18 +880,26 @@ async function postCopilot(
   timeoutMs: number,
   correlationId: string,
 ): Promise<{ ok: boolean; status: number; text: string }> {
+  await ensureFreshSession();
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: "POST",
-      headers: authHeaders(correlationId),
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    const text = await res.text();
+    const doFetch = () =>
+      fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers: authHeaders(correlationId),
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    let res = await doFetch();
+    let text = await res.text();
     if (res.status === 401) {
-      handleUnauthorized(401);
+      // false ⇒ silent refresh succeeded — retry once with new access token.
+      const forcedSignIn = await handleUnauthorized(401);
+      if (!forcedSignIn) {
+        res = await doFetch();
+        text = await res.text();
+      }
     }
     return { ok: res.ok, status: res.status, text };
   } finally {

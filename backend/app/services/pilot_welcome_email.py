@@ -55,19 +55,33 @@ Next steps (about 10 minutes, desktop Excel only — not Excel Online):
 1) Download the Excel add-in manifest
    {manifest_url}
    Save it as manifest.pilot.xml (do not rename to .txt).
+   Tip: if the browser shows XML instead of downloading, use File → Save As,
+   or on Mac: curl -L -o ~/Downloads/manifest.pilot.xml "{manifest_url}"
 
 2) Load it once in desktop Excel
    Insert → Add-ins → My Add-ins → Upload My Add-in
-   (Mac: enable Developer under Excel → Preferences → Ribbon & Toolbar,
-   then Developer → Add-ins → Upload.)
-   Select the manifest.pilot.xml file you saved.
+   (Mac: if Upload is missing, copy the file into
+   ~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/
+   then Quit Excel and reopen — open Copilot from the ribbon.)
+   Do NOT use Developer → Excel Add-ins (that is for Analysis ToolPak only).
 
 3) Open the Wealth Blotter / Copilot pane from the ribbon.
 
-4) Sign in
+4) Sign in + LLM setup (in the task pane)
    Use the SAME email and password you created on the request-access page.
-   Paste your own OpenAI or Anthropic API key (BYOK) and choose the matching Provider.
-   Your LLM key is not stored on our servers.
+
+   Primary LLM (required for AI features):
+   - Choose provider (Ollama, OpenAI, Anthropic, DeepSeek, Grok, Gemini, …)
+   - Enter an API key AND/OR a base URL (e.g. Ollama http://127.0.0.1:11434)
+   - Primary is the workhorse for agents (including research / RAG).
+
+   Secondary LLM (optional):
+   - Another provider API key if you have one.
+   - If blank, everything uses primary.
+
+   Keys stay on your computer and are not stored on our servers.
+   Note: a laptop Ollama URL only works when the API can reach that machine
+   (local API / developer setup). Hosted cloud API cannot call your localhost.
 
 5) Try a small portfolio
    Paste a table with columns:
@@ -96,20 +110,28 @@ def build_welcome_html(*, manifest_url: str) -> str:
       <strong>Download the add-in manifest</strong><br/>
       <a href="{safe_url}">{safe_url}</a><br/>
       Save as <code>manifest.pilot.xml</code> (do not rename to .txt).
+      If the browser only shows XML, use <em>File → Save As</em>.
     </li>
     <li style="margin-bottom:10px;">
       <strong>Load it once in Excel</strong><br/>
       Insert → Add-ins → My Add-ins → Upload My Add-in<br/>
-      Mac: Excel → Preferences → Ribbon &amp; Toolbar → enable Developer →
-      Developer → Add-ins → Upload.
+      Mac tip: if Upload is missing, copy the file into
+      <code>~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/</code>,
+      Quit Excel, reopen, then open Copilot.
+      Do not use Developer → Excel Add-ins (ToolPak only).
     </li>
     <li style="margin-bottom:10px;">
       Open the <strong>Wealth Blotter / Copilot</strong> pane from the ribbon.
     </li>
     <li style="margin-bottom:10px;">
-      <strong>Sign in</strong> with the same email/password you used at request-access.
-      Paste your own OpenAI or Anthropic API key (BYOK) and pick the matching Provider.
-      We do not store that key on our servers.
+      <strong>Sign in</strong> with the same email/password you used at request-access.<br/>
+      <strong>Primary LLM (required for AI):</strong> provider + API key
+      <em>and/or</em> base URL (e.g. Ollama <code>http://127.0.0.1:11434</code>).
+      This is the workhorse for agents (including research / RAG).<br/>
+      <strong>Secondary LLM (optional):</strong> OpenAI, Anthropic, DeepSeek, Grok,
+      Gemini, etc. If blank, everything uses primary.<br/>
+      Keys are not stored on our servers. Laptop Ollama only works when the API
+      can reach your machine (local/dev); a cloud-hosted API cannot call localhost.
     </li>
     <li style="margin-bottom:10px;">
       Paste a small holdings table (or open the attached starter CSV), select it,

@@ -104,6 +104,33 @@ class ExcelWriteSpec(BaseModel):
         default_factory=dict,
         description="Header name → Excel number format for data rows.",
     )
+    header_fill_colors: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Header name → fill color (Excel hex without #, e.g. D9D9D9). "
+            "Used to distinguish advisor-input vs system-enriched columns."
+        ),
+    )
+    header_row_indexes: list[int] = Field(
+        default_factory=list,
+        description=(
+            "0-based row indexes that are table headers (fills/bold/align + "
+            "number formats for rows below until the next header or blank). "
+            "Empty ⇒ treat row 0 as the sole header when styling is requested."
+        ),
+    )
+    header_bold: bool = Field(
+        default=False,
+        description="Bold the header row when true.",
+    )
+    header_horizontal_alignment: Literal["left", "center", "right"] | None = Field(
+        default=None,
+        description="Optional header text alignment.",
+    )
+    table_border: bool = Field(
+        default=False,
+        description="Apply a continuous border around/inside the written grid.",
+    )
 
 
 class DownloadArtifact(BaseModel):

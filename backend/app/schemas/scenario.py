@@ -52,7 +52,7 @@ class DetectedFactors(BaseModel):
 
 
 class MarketDataRequestParams(BaseModel):
-    lookback_window: str = "5Y"
+    lookback_window: str = "8Y"
     frequency: str = "daily"
     required_fields: list[str] = Field(
         default_factory=lambda: ["adjusted_close", "dividend_yield", "volume"]
@@ -78,7 +78,7 @@ class ScenarioBlock(BaseModel):
     tone: ToneLiteral = "neutral"
     base_currency: Literal["USD"] = "USD"
     investment_horizon: str = "1M"
-    lookback_window: str = "5Y"
+    lookback_window: str = "8Y"
     data_frequency: str = "daily"
 
 
@@ -228,6 +228,66 @@ class ScenarioParamDiff(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Past Analogue (opt-in; shadow in pilot)
+# ---------------------------------------------------------------------------
+
+
+class PastAnaloguePeriodHit(BaseModel):
+    """One candidate historical window from web search + LLM extract."""
+
+    start_date: str
+    end_date: str
+    label: str = ""
+    rationale: str = ""
+    model_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
+    source_urls: list[str] = Field(default_factory=list)
+    web_search_queries: list[str] = Field(default_factory=list)
+    validated_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
+    admitted: bool = False
+    reject_reason: str | None = None
+    clipped_start: str | None = None
+    clipped_end: str | None = None
+
+
+class WeightDeltaComponent(BaseModel):
+    """L1 summary for one ablation term."""
+
+    name: str
+    l1: float = 0.0
+    per_ticker: dict[str, float] = Field(default_factory=dict)
+
+
+class WeightDecomposition(BaseModel):
+    """Successive ablation stack for management / chat / audit."""
+
+    w_base: dict[str, float] = Field(default_factory=dict)
+    w_final: dict[str, float] = Field(default_factory=dict)
+    deltas: list[WeightDeltaComponent] = Field(default_factory=list)
+    identity_ok: bool = False
+    notes: list[str] = Field(default_factory=list)
+
+
+class PastAnalogueArtifact(BaseModel):
+    """Frozen lineage: search → LLM → admit → shadow ΔW (rollback-safe)."""
+
+    enabled: bool = False
+    applied: bool = False
+    shadow: bool = True
+    web_search_queries: list[str] = Field(default_factory=list)
+    search_snippets: list[dict[str, Any]] = Field(default_factory=list)
+    llm_raw_text: str | None = None
+    llm_parse_attempts: int = 0
+    raw_hits: list[PastAnaloguePeriodHit] = Field(default_factory=list)
+    admitted_hits: list[PastAnaloguePeriodHit] = Field(default_factory=list)
+    weights_shadow: dict[str, float] = Field(default_factory=dict)
+    # Compliance/safety-resolved positions from the analogue re-opti (when applied).
+    positions_shadow: list[dict[str, Any]] = Field(default_factory=list)
+    weight_decomposition: WeightDecomposition | None = None
+    chat_summary: str = ""
+    messages: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # API request / response
 # ---------------------------------------------------------------------------
 
@@ -286,6 +346,13 @@ class ScenarioRunResponse(BaseModel):
         description=(
             "Indexed cumulative performance (start=100) for Starting Positions "
             "vs Optimized Portfolio over lookback_window."
+        ),
+    )
+    past_analogue: PastAnalogueArtifact | None = Field(
+        default=None,
+        description=(
+            "Past Analogue shadow artifact when feature_flags.past_analogue "
+            "is on (pilot). Omitted / null when flag off — easy rollback."
         ),
     )
     error_code: str | None = None

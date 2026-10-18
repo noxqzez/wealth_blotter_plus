@@ -38,6 +38,7 @@ from backend.app.schemas.rules import TechnicalLimits
 from backend.app.schemas.scenario import (
     ClientPortfolioMetrics,
     OptiPosition,
+    PastAnalogueArtifact,
     ScenarioBlock,
     ScenarioParams,
     ScenarioParseResponse,
@@ -67,6 +68,7 @@ from backend.app.services.scenario_audit import (
     STEP_QUANT,
     STEP_QUANT_SAFETY,
     STEP_RISK_BASE,
+    STEP_PAST_ANALOGUE,
     STEP_RISK_OPTI,
     STEP_RUN_COMPLETE,
     STEP_RUN_FAILED,
@@ -107,6 +109,12 @@ from backend.app.services.scenario_performance import (
     PerformanceBuildError,
     build_base_vs_opti_performance,
 )
+from backend.app.services.past_analogue_config import (
+    past_analogue_apply_enabled,
+    past_analogue_enabled,
+    past_analogue_knobs,
+)
+from backend.app.services.past_analogue import run_past_analogue_pipeline
 
 logger = structlog.get_logger(__name__)
 
@@ -957,6 +965,11 @@ def _execute_phase1_sync(
     # Always fetch at least the PDF chart window (5Y) so performance series
     # stays full-length even if the scenario/optimizer window is shorter.
     lookback = max(int(lookback), int(DEFAULT_CHART_LOOKBACK_DAYS))
+    scenario_cfg = _load_config_row("scenario_wf02")
+    # Past Analogue (flagged off by default): extend panel to archive length.
+    if past_analogue_enabled(feature_flags, scenario_cfg):
+        knobs_pre = past_analogue_knobs(scenario_cfg)
+        lookback = max(int(lookback), int(knobs_pre.get("archive_days") or 2920))
     history = fetch_scenario_history(
         universe, lookback_days=lookback, limits=limits
     )
@@ -1040,6 +1053,7 @@ def _execute_phase1_sync(
             universe_tickers=[t for t, _ac in universe],
             coin_temperature=coin_temp,
             scenario_tone=scenario_params.scenario.tone,
+            user_prompt=scenario_params.user_prompt or "",
         )
         strategist_impl = "stub"
     else:
@@ -1227,7 +1241,97 @@ def _execute_phase1_sync(
         },
     )
 
-    opti_position_dicts: list[dict[str, Any]] = list(opti.get("positions") or [])
+    # Past Analogue — opt-in, fail-open (easy rollback: flag off → no Tavily / no tilts).
+    past_analogue_payload: dict[str, Any] | None = None
+    pa_positions_override: list[dict[str, Any]] | None = None
+    if past_analogue_enabled(feature_flags, scenario_cfg):
+        try:
+            knobs = past_analogue_knobs(scenario_cfg)
+            apply_pa = past_analogue_apply_enabled(feature_flags, scenario_cfg)
+            pa_artifact = run_past_analogue_pipeline(
+                params=scenario_params,
+                returns=history.returns,
+                base_weights=base_weights,
+                applied_weights=opti_weights,
+                strategy_view=strategy_view,
+                base_positions=base_positions,
+                trading_rules=list(trading_rules),
+                portfolio_value=portfolio_value or None,
+                prices=prices,
+                ticker_currency=ticker_ccy,
+                hkd_per_usd=hkd_per_usd,
+                client_alias=client_alias,
+                risk_aversion=float(
+                    scenario_params.risk_aversion
+                    if scenario_params.risk_aversion is not None
+                    else DEFAULT_RISK_AVERSION
+                ),
+                freeze_list=list(scenario_params.freeze_list or []),
+                weight_overrides=dict(scenario_params.weight_overrides or {}),
+                knobs=knobs,
+                apply=apply_pa,
+            )
+            past_analogue_payload = pa_artifact.model_dump(mode="json")
+            messages.extend(list(pa_artifact.messages or []))
+            # Applied path: weights already ran propose_opti_folio with trading_rules.
+            if apply_pa and pa_artifact.applied and pa_artifact.weights_shadow:
+                opti_weights = {
+                    _normalize_ticker(str(k)): float(v)
+                    for k, v in pa_artifact.weights_shadow.items()
+                }
+                if pa_artifact.positions_shadow:
+                    pa_positions_override = list(pa_artifact.positions_shadow)
+                opti_metrics = compute_client_metrics_from_weights(
+                    history.returns, opti_weights
+                )
+                delta = metrics_delta(base_metrics, opti_metrics)
+                messages.append(
+                    "past_analogue: applied blended strategist+analogue weights to "
+                    "live opti (trading/compliance enforced in both opti legs)"
+                )
+            write_scenario_step_audit(
+                **audit_kw,
+                step=STEP_PAST_ANALOGUE,
+                agent_or_component="past_analogue_agent",
+                implementation="web_search_llm_extract_apply",
+                input_payload={
+                    "knobs": knobs,
+                    "apply_requested": apply_pa,
+                    "user_prompt": (scenario_params.user_prompt or "")[:500],
+                },
+                output_payload=past_analogue_payload,
+                messages=list(pa_artifact.messages or []),
+            )
+        except Exception as pa_exc:  # noqa: BLE001
+            logger.warning(
+                "past_analogue_hook_failed",
+                scenario_run_id=str(scenario_run_id),
+                error=str(pa_exc),
+            )
+            messages.append(f"past_analogue fail-open: {pa_exc}")
+            past_analogue_payload = {
+                "enabled": True,
+                "applied": False,
+                "shadow": True,
+                "messages": [f"past_analogue fail-open: {pa_exc}"],
+                "chat_summary": "weight input from historical events = 0.000",
+            }
+            write_scenario_step_audit(
+                **audit_kw,
+                step=STEP_PAST_ANALOGUE,
+                agent_or_component="past_analogue_agent",
+                implementation="fail_open",
+                input_payload={},
+                output_payload=past_analogue_payload,
+                messages=[str(pa_exc)],
+                ok=False,
+            )
+
+    opti_position_dicts: list[dict[str, Any]] = (
+        list(pa_positions_override)
+        if pa_positions_override is not None
+        else list(opti.get("positions") or [])
+    )
     opti_positions = [OptiPosition.model_validate(p) for p in opti_position_dicts]
 
     staged = _build_staged_trades(
@@ -1317,6 +1421,9 @@ def _execute_phase1_sync(
     if performance_payload is not None:
         # Backup if performance_series column not yet migrated.
         strategy_view_json["performance_series"] = performance_payload
+    # Nested jsonb — no new DB column required (easy rollback).
+    if past_analogue_payload is not None:
+        strategy_view_json["past_analogue"] = past_analogue_payload
 
     artifact: dict[str, Any] = {
         "status": "COMPLETED",
@@ -1367,6 +1474,7 @@ def _execute_phase1_sync(
             "staged_trades": [t.model_dump(mode="json") for t in staged],
             "metrics_delta": delta,
             "performance_series": performance_payload,
+            "past_analogue": past_analogue_payload,
         },
         messages=messages,
     )
@@ -1377,6 +1485,14 @@ def _execute_phase1_sync(
         staged_trades=len(staged),
         opti_positions=len(opti_positions),
     )
+    past_analogue_model = None
+    if past_analogue_payload is not None:
+        try:
+            past_analogue_model = PastAnalogueArtifact.model_validate(
+                past_analogue_payload
+            )
+        except Exception:  # noqa: BLE001
+            past_analogue_model = None
     return ScenarioRunResponse(
         scenario_run_id=scenario_run_id,
         portfolio_id=portfolio_id,
@@ -1391,6 +1507,7 @@ def _execute_phase1_sync(
         staged_trades=staged,
         talking_points=talking,
         performance_series=performance_payload,
+        past_analogue=past_analogue_model,
         messages=messages,
     )
 

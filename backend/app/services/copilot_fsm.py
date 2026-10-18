@@ -307,12 +307,13 @@ def _post_opti_action_ids(state: CopilotSessionState) -> list[str]:
     if _rating_pending(state):
         ids.extend(_RATE_ACTION_IDS)
         ids.append(ACTION_SKIP_RATING)
+    # Place orders is the main next step; PDF / new scenario are secondary.
+    # Update holdings is omitted here — restart via Process Security List instead.
     ids.extend(
         [
             ACTION_PLACE,
             ACTION_PDF,
             ACTION_NEW_SCENARIO,
-            ACTION_UPDATE_HOLDINGS,
         ]
     )
     return ids
@@ -328,22 +329,53 @@ def _post_opti_actions(state: CopilotSessionState) -> list[ActionTrigger]:
             _action_place(),
             _action_pdf(),
             _action_new_scenario(),
-            _action_update_holdings(),
         ]
     )
     return actions
 
 
 def _orders_placed_action_ids() -> list[str]:
-    return [ACTION_PDF, ACTION_NEW_SCENARIO, ACTION_UPDATE_HOLDINGS]
+    # Terminal workflow: only restart via a fresh security-list import.
+    return [ACTION_PROCESS]
 
 
 def _orders_placed_actions() -> list[ActionTrigger]:
-    return [
-        _action_pdf(),
-        _action_new_scenario(),
-        _action_update_holdings(),
-    ]
+    return [_action_process()]
+
+
+def _overlay_excel_order_qty(
+    orders: Sequence[Any],
+    excel_orders: Sequence[dict[str, Any]] | None,
+) -> list[Any]:
+    """Prefer advisor blotter quantities on the post-place Excel rewrite.
+
+    DB staged qty stays as system-staged for audit; HITL is already flagged when
+    they differ. Rewriting the sheet from DB alone looked like the edit "reverted".
+    """
+    if not excel_orders:
+        return list(orders)
+    by_id: dict[str, dict[str, Any]] = {}
+    for raw in excel_orders:
+        oid = str(raw.get("order_id") or "").strip()
+        if oid:
+            by_id[oid] = dict(raw)
+    out: list[Any] = []
+    for order in orders:
+        oid = str(getattr(order, "order_id", "") or "")
+        excel = by_id.get(oid)
+        if excel is None:
+            out.append(order)
+            continue
+        try:
+            qty = float(excel.get("quantity"))
+        except (TypeError, ValueError):
+            out.append(order)
+            continue
+        if hasattr(order, "model_copy"):
+            out.append(order.model_copy(update={"quantity": qty}))
+        else:
+            out.append(order)
+    return out
 
 
 def _review_scenario_actions() -> list[ActionTrigger]:
@@ -357,8 +389,7 @@ def _review_scenario_action_ids() -> list[str]:
 def _rating_prompt_markdown() -> str:
     return (
         "\n\n---\n"
-        "**How was this simulation?** Tap the stars below (optional — one "
-        "rating per run), or **Skip rating**."
+        "Rate the simulation below (optional)"
     )
 
 
@@ -437,12 +468,14 @@ def _fmt_metric(n: float | None) -> float | str:
 
 
 def _qty(n: float | None, asset_class: str | None) -> float | int | str:
+    """Display qty always at 2dp so Excel #,##0.00 shows consistently."""
     if n is None:
         return ""
-    ac = (asset_class or "").upper()
-    if ac in {"CASH", "CRYPTO"}:
-        return round(float(n), 2)
-    return int(float(n))
+    _ = asset_class  # retained for call-site compatibility
+    return round(float(n), 2)
+
+# Light-blue header fill (matches enriched securities-list columns).
+_HEADER_FILL_CYAN = "BDD7EE"
 
 
 def _money(n: float | None) -> float | str:
@@ -485,16 +518,38 @@ def build_scratchpad_write(
                 p.ticker,
                 p.asset_class,
                 p.currency,
-                p.quantity,
+                # Always 2dp so Excel #,##0.00 shows "##.##" (not "##.").
+                round(float(p.quantity), 2),
                 p.short_name,
                 round(float(p.spot_price), 2),
-                p.market_value,
+                round(float(p.market_value), 2) if p.market_value is not None else "",
                 round(float(p.current_weight_pct) * 100.0, 2),
                 p.status,
                 ts,
                 str(p.pos_id),
             ]
         )
+    # Match advisor UX: gray = required paste fields; cyan = system enrichment.
+    input_headers = (
+        "client_alias",
+        "ticker",
+        "asset_class",
+        "currency",
+        "quantity",
+    )
+    enriched_headers = (
+        "short_name",
+        "last_price",
+        "nominal_value",
+        "Pct weight (USD)",
+        "status",
+        "price_timestamp",
+        "pos_id",
+    )
+    header_fills = {
+        **{h: "D9D9D9" for h in input_headers},
+        **{h: "BDD7EE" for h in enriched_headers},
+    }
     return ExcelWriteSpec(
         sheet_name=SCRATCHPAD_SHEET,
         values=[header, *body],
@@ -503,10 +558,15 @@ def build_scratchpad_write(
         if hide_source_sheet and hide_source_sheet != SCRATCHPAD_SHEET
         else None,
         column_number_formats={
+            "quantity": "#,##0.00",
             "last_price": "#,##0.00",
             "nominal_value": "#,##0.00",
             "Pct weight (USD)": "0.00",
         },
+        header_fill_colors=header_fills,
+        header_bold=True,
+        header_horizontal_alignment="center",
+        table_border=True,
     )
 
 
@@ -515,6 +575,7 @@ def build_rebalanced_write(
     *,
     scenario_run_id: UUID,
 ) -> ExcelWriteSpec:
+    _ = scenario_run_id  # retained for call-site / audit correlation
     positions = body.opti_folio or []
     metric_keys = [
         "expected_return",
@@ -526,9 +587,8 @@ def build_rebalanced_write(
         "cvar_95",
         "scenario_return",
     ]
-    rows: list[list[Any]] = [
-        ["metrics", "base", "opti", "delta"],
-    ]
+    metrics_header = ["metrics", "base", "opti", "delta"]
+    rows: list[list[Any]] = [list(metrics_header)]
     base_m = body.base_client_metrics
     opti_m = body.opti_client_metrics
     delta = body.metrics_delta or {}
@@ -543,16 +603,16 @@ def build_rebalanced_write(
         )
     rows.append([])
     rows.append(["opti_folio"])
-    rows.append(
-        [
-            "ticker",
-            "asset_class",
-            "currency",
-            "quantity",
-            "nominal_value",
-            "Pct weight (USD)",
-        ]
-    )
+    opti_header = [
+        "ticker",
+        "asset_class",
+        "currency",
+        "quantity",
+        "nominal_value",
+        "Pct weight (USD)",
+    ]
+    opti_header_row = len(rows)
+    rows.append(list(opti_header))
     for p in positions:
         rows.append(
             [
@@ -568,14 +628,27 @@ def build_rebalanced_write(
 
     width = max((len(r) for r in rows), default=1)
     padded = [r + [""] * (width - len(r)) for r in rows]
+    header_fills = {
+        **{h: _HEADER_FILL_CYAN for h in metrics_header},
+        **{h: _HEADER_FILL_CYAN for h in opti_header},
+    }
     return ExcelWriteSpec(
         sheet_name=REBALANCED_SHEET,
         values=padded,
         activate=True,
         column_number_formats={
+            "base": "0.0000",
+            "opti": "0.0000",
+            "delta": "0.0000",
+            "quantity": "#,##0.00",
             "nominal_value": "#,##0.00",
             "Pct weight (USD)": "0.00",
         },
+        header_fill_colors=header_fills,
+        header_row_indexes=[0, opti_header_row],
+        header_bold=True,
+        header_horizontal_alignment="center",
+        table_border=True,
     )
 
 
@@ -584,6 +657,7 @@ def build_ord_blotter_write(
     *,
     scenario_run_id: UUID,
 ) -> ExcelWriteSpec:
+    _ = scenario_run_id  # retained for call-site / audit correlation
     if isinstance(body, ScenarioRunResponse):
         trades = list(body.staged_trades or [])
     else:
@@ -597,20 +671,19 @@ def build_ord_blotter_write(
             str(t.ticker),
         ),
     )
-    rows: list[list[Any]] = [
-        [
-            "order_id",
-            "client_alias",
-            "Status",
-            "ticker",
-            "asset_class",
-            "side",
-            "quantity",
-            "exec_type",
-            "from_Pct weight (USD)",
-            "to_Pct weight (USD)",
-        ],
+    header = [
+        "order_id",
+        "client_alias",
+        "Status",
+        "ticker",
+        "asset_class",
+        "side",
+        "quantity",
+        "exec_type",
+        "from_Pct weight (USD)",
+        "to_Pct weight (USD)",
     ]
+    rows: list[list[Any]] = [list(header)]
     for t in trades:
         rows.append(
             [
@@ -632,7 +705,16 @@ def build_ord_blotter_write(
         sheet_name=ORD_BLOTTER_SHEET,
         values=padded,
         activate=False,
-        column_number_formats={},
+        column_number_formats={
+            "quantity": "#,##0.00",
+            "from_Pct weight (USD)": "0.00",
+            "to_Pct weight (USD)": "0.00",
+        },
+        header_fill_colors={h: _HEADER_FILL_CYAN for h in header},
+        header_row_indexes=[0],
+        header_bold=True,
+        header_horizontal_alignment="center",
+        table_border=True,
     )
 
 
@@ -791,13 +873,36 @@ def try_deterministic_param_patch(
         mdr["lookback_window"] = lookback
         patch["market_data_request_params"] = mdr
 
-    # horizon
+    # horizon (explicit "horizon 1Y" or temporal phrases)
     hm = re.search(
         r"(?:investment\s+)?horizon\s*(?:to\s*|=\s*)?(\d+)\s*([ymwd])",
         lower,
     )
     if hm:
         scenario_patch["investment_horizon"] = f"{hm.group(1)}{hm.group(2).upper()}"
+    elif re.search(
+        r"\b(?:next\s+year|over\s+the\s+next\s+year|by\s+next\s+year|"
+        r"within\s+(?:a|one)\s+year|in\s+(?:a|one)\s+year)\b",
+        lower,
+    ):
+        scenario_patch["investment_horizon"] = "1Y"
+    elif (
+        (m := re.search(
+            r"\b(?:in|over|within|for)?\s*(?:the\s+)?next\s+(\d+)\s+months?\b",
+            lower,
+        ))
+        and int(m.group(1)) >= 12
+    ):
+        scenario_patch["investment_horizon"] = "1Y"
+    elif re.search(r"\b(?:by|in|through|until)\s+20\d{2}\b", lower) or re.search(
+        r"\b20(2[6-9]|[3-9]\d)\b", lower
+    ):
+        # Future calendar year cue (2026+) → treat as ≥1Y planning horizon
+        scenario_patch["investment_horizon"] = "1Y"
+    elif re.search(r"\b(?:next\s+month|by\s+month[\s-]?end|this\s+month)\b", lower):
+        scenario_patch["investment_horizon"] = "1M"
+    elif re.search(r"\b(?:next\s+week|this\s+week)\b", lower):
+        scenario_patch["investment_horizon"] = "1W"
 
     # severity
     for sev in ("low", "medium", "high"):
@@ -906,11 +1011,11 @@ def build_welcome_response(state: CopilotSessionState) -> CopilotAgentResponse:
     return _response(
         state,
         content=(
-            "Welcome to Wealth Blotter Copilot.\n\n"
-            "Select your securities list in Excel, then click "
-            "**Process Security List** to validate the blotter.\n\n"
-            "You can also ask read-only lookups anytime "
-            "(e.g. latest portfolio, PDF, trades)."
+            "To start, paste a list of securities into the sheet "
+            "(include client alias, ticker, quantity and currency), "
+            "select all cells and click **Process Security List** to validate.\n\n"
+            "You can also ask about past portfolio updates "
+            "(e.g. latest portfolios, PDF, trades)."
         ),
         actions=[_action_process()],
         badges=["Import securities"],
@@ -1620,6 +1725,11 @@ async def _handle_run(
 
     n_trades = len(result.staged_trades or [])
     rating_block = _rating_prompt_markdown() if _rating_pending(state) else ""
+    past_analogue_block = ""
+    if result.past_analogue is not None and result.past_analogue.enabled:
+        summary = (result.past_analogue.chat_summary or "").strip()
+        if summary:
+            past_analogue_block = f"\n\n{summary}\n"
     return _response(
         state,
         content=(
@@ -1628,6 +1738,7 @@ async def _handle_run(
             "Review (and optionally edit) orders on `ord_blotter`, then "
             "**Place All Orders** to finish. **Download PDF**, "
             "**Run new scenario**, or **Update holdings** anytime."
+            f"{past_analogue_block}"
             f"{rating_block}"
         ),
         actions=_post_opti_actions(state),
@@ -1720,7 +1831,11 @@ async def _handle_place_orders(
     orders = list(placed.get("orders") or [])
     orders_hitl = bool(placed.get("orders_hitl"))
     notes = list(placed.get("mismatch_notes") or [])
-    write = build_ord_blotter_write(orders, scenario_run_id=state.scenario_run_id)
+    # Keep advisor blotter qty on the sheet (HITL edits); DB still has staged qty.
+    display_orders = _overlay_excel_order_qty(orders, request.order_rows)
+    write = build_ord_blotter_write(
+        display_orders, scenario_run_id=state.scenario_run_id
+    )
 
     state.current_state = WorkflowState.ORDERS_PLACED
     state.pending_action_ids = _orders_placed_action_ids()
@@ -1739,8 +1854,8 @@ async def _handle_place_orders(
         content=(
             f"Placed **{len(orders)}** order(s) (dummy OMS → **Executed**). "
             f"`{ORD_BLOTTER_SHEET}` updated.{hitl_line}{detail}\n\n"
-            "Workflow complete for this scenario. Optional: **Download PDF**, "
-            "**Run new scenario**, or **Update holdings** on this portfolio."
+            "Workflow complete for this scenario. To start again, click "
+            "**Process Security List** with a new (or updated) holdings table."
         ),
         actions=_orders_placed_actions(),
         badges=["ORDERS_PLACED"] + (["ORDERS_HITL"] if orders_hitl else []),
@@ -2067,7 +2182,7 @@ def _placeholder_for(state: CopilotSessionState) -> str | None:
             "Ask a lookup, place orders, PDF, new scenario, or update holdings…"
         )
     if state.current_state == WorkflowState.ORDERS_PLACED:
-        return "Ask a lookup, PDF, new scenario, or update holdings…"
+        return "Ask a lookup, or process a new securities list to restart…"
     return None
 
 

@@ -1432,14 +1432,15 @@ def _validate_returns_frame(returns: pd.DataFrame) -> None:
 
 
 def _normalize_ticker(raw: str) -> str:
-    t = raw.strip().upper()
+    """Optimizer cash form keeps ``CASH_USD``; crypto/equity via shared helper."""
+    from backend.app.services.ticker_normalize import normalize_ticker
+
+    t = str(raw or "").strip().upper()
     if t in CASH_TICKER_ALIASES:
         if t == "USD":
             return "USD"
         return "CASH_USD" if t in {"CASH", "CASH_USD"} else t
-    if t in APPROVED_CRYPTO_BASES:
-        return f"{t}-USD"
-    return t
+    return normalize_ticker(t)
 
 
 def _normalize_asset_class(raw: str) -> str:

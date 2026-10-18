@@ -18,11 +18,9 @@ from backend.app.services.past_analogue import (
     blend_strategist_analogue_weights,
     build_weight_decomposition,
     format_chat_summary,
-    reweight_returns,
-)
-from backend.app.services.past_analogue_config import (
     past_analogue_apply_enabled,
     past_analogue_enabled,
+    reweight_returns,
 )
 
 

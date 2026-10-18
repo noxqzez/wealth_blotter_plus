@@ -34,6 +34,30 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     use_cloud_llm: bool = Field(default=False, alias="USE_CLOUD_LLM")
+    # Past Analogue — search + optional future LLM override (stubs; empty = unused).
+    # Tavily: used today when set. Gemini: placeholder until provider is wired.
+    tavily_api_key: str = Field(default="", alias="TAVILY_API_KEY")
+    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+    # ollama | openai | anthropic | gemini — gemini not implemented yet (see llm.py).
+    past_analogue_llm_provider: str = Field(
+        default="",
+        alias="PAST_ANALOGUE_LLM_PROVIDER",
+    )
+    # Pilot thrift: cache Tavily by query; cap live calls per process (0 = unlimited).
+    tavily_cache_dir: str = Field(
+        default="artifacts/past_analogue/tavily_cache",
+        alias="TAVILY_CACHE_DIR",
+    )
+    tavily_max_calls_per_process: int = Field(
+        default=40,
+        alias="TAVILY_MAX_CALLS_PER_PROCESS",
+        description="Hard cap on live Tavily HTTP calls per API process (pilot default 40).",
+    )
+    past_analogue_max_search_queries: int = Field(
+        default=1,
+        alias="PAST_ANALOGUE_MAX_SEARCH_QUERIES",
+        description="Queries per scenario (pilot default 1 to save credits; was 2).",
+    )
 
     confidence_threshold: float = Field(default=0.85, alias="CONFIDENCE_THRESHOLD")
 
@@ -58,6 +82,26 @@ class Settings(BaseSettings):
         default="", alias="SSO_AUTO_APPROVE_DOMAINS"
     )
     sso_require_approval: bool = Field(default=True, alias="SSO_REQUIRE_APPROVAL")
+
+    # Host admin (approve + welcome email). Never give this key to pilots.
+    admin_api_key: str = Field(default="", alias="ADMIN_API_KEY")
+    # Resend.com — transactional welcome email after approval.
+    resend_api_key: str = Field(default="", alias="RESEND_API_KEY")
+    # Verified sender, e.g. "Wealth Blotter <pilots@yourdomain.com>"
+    pilot_welcome_from_email: str = Field(
+        default="",
+        alias="PILOT_WELCOME_FROM_EMAIL",
+    )
+    # Full URL to manifest.pilot.xml (preferred).
+    pilot_manifest_url: str = Field(
+        default="https://wealth-blotter-plus-excel.onrender.com/manifest.pilot.xml",
+        alias="PILOT_MANIFEST_URL",
+    )
+    # Fallback base for Excel static site if PILOT_MANIFEST_URL empty.
+    pilot_excel_base_url: str = Field(
+        default="https://wealth-blotter-plus-excel.onrender.com",
+        alias="PILOT_EXCEL_BASE_URL",
+    )
 
     cors_origins: str = Field(
         default="https://localhost:3000,http://localhost:8501",

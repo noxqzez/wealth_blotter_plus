@@ -61,7 +61,8 @@ If either is missing, email the host and stop here.
 
 ## Step B — Wait for approval
 
-1. Wait for an email (or Slack/message) from the host saying you are approved.
+1. Wait for a **welcome email** from the host (after they approve you). It includes the manifest download link and setup steps.  
+   (Some hosts may still message you separately in Slack.)
 2. Only then continue to Excel setup and sign-in.
 3. If you try to sign in before approval, Excel will say your account is still pending — that is expected.
 

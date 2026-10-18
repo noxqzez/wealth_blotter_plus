@@ -52,6 +52,17 @@ services:
         value: ""
       - key: SSO_AUTO_APPROVE_DOMAINS
         value: ""
+      # Host approve + welcome email (/admin/pilots). Set secrets in Render dashboard.
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: PILOT_WELCOME_FROM_EMAIL
+        sync: false
+      - key: PILOT_MANIFEST_URL
+        value: https://wealth-blotter-plus-excel.onrender.com/manifest.pilot.xml
+      - key: PILOT_EXCEL_BASE_URL
+        value: https://wealth-blotter-plus-excel.onrender.com
 
   # Excel task pane (Office Add-in SourceLocation). Pilots sideload manifest.pilot.xml once.
   - type: web

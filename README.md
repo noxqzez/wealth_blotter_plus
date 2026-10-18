@@ -85,7 +85,8 @@ See [backend/app/db/RAG_POC.md](backend/app/db/RAG_POC.md).
 3. Tell them to follow **[PILOT.md](PILOT.md)**  
    (request access → approval → sideload manifest once → BYOK + sign in in Excel)
 
-Host/operator Render + Supabase checklist: [docs/PILOT_PHASE1.md](docs/PILOT_PHASE1.md).
+Host/operator Render + Supabase checklist: [docs/PILOT_PHASE1.md](docs/PILOT_PHASE1.md).  
+Approve + welcome email UI: `https://<api>.onrender.com/admin/pilots` (needs `ADMIN_API_KEY` + Resend).
 
 ## Agent & security docs
 

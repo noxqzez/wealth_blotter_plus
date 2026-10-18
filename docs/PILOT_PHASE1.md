@@ -139,10 +139,24 @@ You do **not** give them: GitHub access, service role key, JWT secret, Render cr
 ## E. Your admin workflow
 
 1. Pilot registers → row in `profiles` with `PENDING_APPROVAL`.
-2. You set `approval_status = APPROVED` in Supabase Table Editor.
-3. Pilot sideloads `manifest.pilot.xml` **once**, opens the pane, pastes BYOK, signs in.
-4. JWT works; `usage_metrics` rows appear with their `advisor_id`.
-5. Troubleshoot via `usage_metrics` / `audit_events` filtered by `advisor_id`.
+2. **Prefer:** open **`https://<api-service>.onrender.com/admin/pilots`**, enter `ADMIN_API_KEY` + pilot email → **Approve & send welcome**.  
+   That sets `APPROVED` and emails the pilot the manifest link, setup steps, and a starter CSV.  
+   (Apply `backend/app/db/migration_pilot_welcome_email.sql` once for `welcome_email_sent_at`.)
+3. **Alternative:** set `approval_status = APPROVED` in Supabase Table Editor, then use `/admin/pilots` with **Force resend** if you still need the welcome email.
+4. Pilot sideloads `manifest.pilot.xml` **once**, opens the pane, pastes BYOK, signs in.
+5. JWT works; `usage_metrics` rows appear with their `advisor_id`.
+6. Troubleshoot via `usage_metrics` / `audit_events` filtered by `advisor_id`.
+
+### Welcome email (Resend)
+
+| Env on API | Purpose |
+|------------|---------|
+| `ADMIN_API_KEY` | Secret for `/admin/pilots` (header `X-Admin-Key`) |
+| `RESEND_API_KEY` | [Resend](https://resend.com) API key |
+| `PILOT_WELCOME_FROM_EMAIL` | Verified From, e.g. `Wealth Blotter <pilots@yourdomain.com>` |
+| `PILOT_MANIFEST_URL` | Link included in the email |
+
+The email **never** includes the pilot’s password. Send is idempotent unless you check **Force resend**.
 
 ---
 

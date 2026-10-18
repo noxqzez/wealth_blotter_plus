@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Approve pilots — Wealth Blotter Plus</title>
+    <style>
+      :root {
+        --bg0: #0c1219;
+        --bg1: #141c27;
+        --ink: #e8eef6;
+        --muted: #8b9bb0;
+        --line: rgba(232, 238, 246, 0.12);
+        --accent: #3d8bfd;
+        --ok: #3ecf8e;
+        --danger: #f07178;
+        --font: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: var(--font);
+        color: var(--ink);
+        background:
+          radial-gradient(900px 480px at 12% -10%, rgba(61, 139, 253, 0.22), transparent 55%),
+          linear-gradient(165deg, var(--bg0), var(--bg1) 55%, #0a1016);
+      }
+      main {
+        width: min(440px, calc(100% - 2rem));
+        margin: 0 auto;
+        padding: 4.5rem 0 3rem;
+      }
+      .brand {
+        font-size: 0.75rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 0.75rem;
+      }
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: 1.65rem;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+      }
+      .lead {
+        margin: 0 0 1.5rem;
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1.45;
+      }
+      form {
+        display: grid;
+        gap: 0.9rem;
+        padding: 1.25rem;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(20, 28, 39, 0.72);
+      }
+      label {
+        display: grid;
+        gap: 0.35rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      input[type="email"],
+      input[type="password"] {
+        width: 100%;
+        padding: 0.7rem 0.8rem;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: #0a1016;
+        color: var(--ink);
+        font-size: 1rem;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .check input { width: auto; }
+      button {
+        padding: 0.75rem 1rem;
+        border: none;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #04101f;
+        font-weight: 650;
+        font-size: 0.95rem;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      .status { margin-top: 1rem; font-size: 0.9rem; min-height: 1.25em; }
+      .status.ok { color: var(--ok); }
+      .status.err { color: var(--danger); }
+      .note {
+        margin-top: 1.25rem;
+        color: var(--muted);
+        font-size: 0.8rem;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="brand">Wealth Blotter Plus · Host only</p>
+      <h1>Approve &amp; welcome</h1>
+      <p class="lead">
+        Sets the pilot to APPROVED and emails them the manifest link, setup
+        steps, and a starter portfolio CSV. Do not share this page with pilots.
+      </p>
+      <form id="adminForm">
+        <label>
+          Admin key
+          <input
+            id="adminKey"
+            name="adminKey"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+        </label>
+        <label>
+          Pilot email
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autocomplete="off"
+            required
+          />
+        </label>
+        <label class="check">
+          <input id="forceResend" type="checkbox" />
+          Force resend welcome email (if already sent)
+        </label>
+        <button id="submitBtn" type="submit">Approve &amp; send welcome</button>
+      </form>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <p class="note">
+        Requires <code>ADMIN_API_KEY</code>, <code>RESEND_API_KEY</code>, and
+        <code>PILOT_WELCOME_FROM_EMAIL</code> on the API. The email never
+        includes the pilot’s password.
+      </p>
+    </main>
+    <script>
+      (function () {
+        const form = document.getElementById("adminForm");
+        const statusEl = document.getElementById("status");
+        const submitBtn = document.getElementById("submitBtn");
+        const keyEl = document.getElementById("adminKey");
+        const stored = sessionStorage.getItem("wbp_admin_key");
+        if (stored) keyEl.value = stored;
+
+        function setStatus(message, kind) {
+          statusEl.textContent = message || "";
+          statusEl.className = "status" + (kind ? " " + kind : "");
+        }
+
+        form.addEventListener("submit", async function (event) {
+          event.preventDefault();
+          const adminKey = String(keyEl.value || "").trim();
+          const email = String(document.getElementById("email").value || "").trim();
+          const forceResend = document.getElementById("forceResend").checked;
+          if (!adminKey || !email) {
+            setStatus("Enter admin key and pilot email.", "err");
+            return;
+          }
+          sessionStorage.setItem("wbp_admin_key", adminKey);
+          submitBtn.disabled = true;
+          setStatus("Working…");
+          try {
+            const res = await fetch("/api/v1/admin/pilots/approve-and-welcome", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Admin-Key": adminKey,
+              },
+              body: JSON.stringify({
+                email: email,
+                force_resend: forceResend,
+              }),
+            });
+            let body = {};
+            try {
+              body = await res.json();
+            } catch (_e) {
+              body = {};
+            }
+            if (!res.ok) {
+              const detail = body.detail;
+              let msg = "Request failed.";
+              if (typeof detail === "string") msg = detail;
+              else if (detail && typeof detail === "object") {
+                msg = detail.message || detail.error_code || msg;
+              }
+              setStatus(msg, "err");
+              return;
+            }
+            setStatus(body.message || "Done.", "ok");
+          } catch (_err) {
+            setStatus("Network error. Check the API URL.", "err");
+          } finally {
+            submitBtn.disabled = false;
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

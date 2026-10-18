@@ -22,6 +22,7 @@ from backend.app.services.usage_telemetry import record_usage_metric
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _REQUEST_ACCESS_HTML = _STATIC_DIR / "request_access.html"
+_ADMIN_PILOTS_HTML = _STATIC_DIR / "admin_pilots.html"
 _SSO_CALLBACK_HTML = _STATIC_DIR / "sso_callback.html"
 
 structlog.configure(
@@ -42,6 +43,7 @@ _TELEMETRY_SKIP_PREFIXES = (
     "/openapi.json",
     "/redoc",
     "/request-access",
+    "/admin/pilots",
     "/auth/sso/callback",
     "/auth/sso/start",
 )
@@ -80,6 +82,7 @@ app.add_middleware(
         "X-Correlation-ID",
         "X-LLM-API-Key",
         "X-LLM-Provider",
+        "X-Admin-Key",
     ],
     expose_headers=["X-Request-ID", "X-Process-Time-Ms"],
 )
@@ -225,6 +228,21 @@ async def request_access_page() -> FileResponse:
         raise HTTPException(status_code=404, detail="Request-access page not found")
     return FileResponse(
         path=_REQUEST_ACCESS_HTML,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/admin/pilots", include_in_schema=False)
+async def admin_pilots_page() -> FileResponse:
+    """
+    Host-only UI: approve pilot + send welcome email.
+    Protected by ADMIN_API_KEY on the API call (not by page login).
+    """
+    if not _ADMIN_PILOTS_HTML.is_file():
+        raise HTTPException(status_code=404, detail="Admin pilots page not found")
+    return FileResponse(
+        path=_ADMIN_PILOTS_HTML,
         media_type="text/html; charset=utf-8",
         headers={"Cache-Control": "no-store"},
     )

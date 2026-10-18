@@ -42,19 +42,7 @@ output in order for manual review (no CrewAI Desktop required).
 
 ## 4. Try it
 
-### Tiny hello-world crew (best first test)
-
-```bash
-# Ollama must be running (ollama list)
-uv run python -m backend.app.agents.demo_hello
-```
-
-Files:
-- Persona: `config/demo_hello_agents.yaml`
-- Task: `config/demo_hello_tasks.yaml`
-- Runner: `demo_hello.py`
-
-### Advisory crew (later)
+### Advisory crew
 
 ```bash
 uv run uvicorn backend.app.main:app --reload --port 8000

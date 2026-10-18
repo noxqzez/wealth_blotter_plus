@@ -457,7 +457,7 @@ def _response(
 
 
 # ---------------------------------------------------------------------------
-# Excel write grids (mirror taskpane.ts / scenario.ts)
+# Excel write grids (applied by frontend_excel/src/copilot.ts)
 # ---------------------------------------------------------------------------
 
 

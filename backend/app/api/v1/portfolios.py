@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 
-from backend.app.api.http_util import correlation_id, http_server_error
+from backend.app.api.http_util import correlation_id, http_error, http_server_error
 from backend.app.core.error_codes import (
     WBP_IMPORT_BUILD,
     WBP_IMPORT_SERVER,
     WBP_IMPORT_VALIDATE,
-    error_payload,
 )
 from backend.app.core.rules_engine import RulesEngine, get_rules_engine
 from backend.app.core.security import AuthContext, get_current_user
@@ -28,23 +27,6 @@ router = APIRouter()
 logger = structlog.get_logger(__name__)
 
 
-def _http_validation(
-    exc: ImportValidationError,
-    *,
-    error_code: str,
-    cid: str,
-) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=error_payload(
-            error_code=error_code,
-            message=str(exc),
-            correlation_id=cid or None,
-            support=False,
-        ),
-    )
-
-
 @router.post("/validate-import", response_model=ValidateImportResponse)
 async def portfolios_validate_import(
     payload: ImportValidationRequest,
@@ -56,8 +38,11 @@ async def portfolios_validate_import(
     try:
         result = await validate_import(payload, advisor_id=user.advisor_id)
     except ImportValidationError as exc:
-        raise _http_validation(
-            exc, error_code=WBP_IMPORT_VALIDATE, cid=cid
+        raise http_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code=WBP_IMPORT_VALIDATE,
+            message=str(exc),
+            correlation_id=cid,
         ) from exc
     except Exception as exc:  # noqa: BLE001 — map to support code
         raise http_server_error(
@@ -108,8 +93,11 @@ async def portfolios_build_base(
     try:
         result = await build_base(payload, limits=limits)
     except ImportValidationError as exc:
-        raise _http_validation(
-            exc, error_code=WBP_IMPORT_BUILD, cid=cid
+        raise http_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code=WBP_IMPORT_BUILD,
+            message=str(exc),
+            correlation_id=cid,
         ) from exc
     except Exception as exc:  # noqa: BLE001
         raise http_server_error(

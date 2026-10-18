@@ -8,6 +8,7 @@ from uuid import UUID
 import structlog
 
 from backend.app.core.supabase import get_service_supabase
+from backend.app.services.usage_telemetry import record_usage_metric
 
 logger = structlog.get_logger(__name__)
 
@@ -102,20 +103,15 @@ def save_interaction_rating(
         rating=rating,
     )
     # Lightweight product telemetry (best-effort; never blocks rating).
-    try:
-        _client().table("usage_metrics").insert(
-            {
-                "event_action": "interaction_rating",
-                "endpoint_or_component": "copilot",
-                "metadata": {
-                    "advisor_id": str(advisor_id),
-                    "scenario_run_id": str(scenario_run_id),
-                    "rating": rating,
-                },
-            }
-        ).execute()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("usage_metrics_rating_failed", error=str(exc))
+    record_usage_metric(
+        event_action="interaction_rating",
+        endpoint_or_component="copilot",
+        advisor_id=advisor_id,
+        metadata={
+            "scenario_run_id": str(scenario_run_id),
+            "rating": rating,
+        },
+    )
 
     return dict(row) if isinstance(row, dict) else payload
 

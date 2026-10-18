@@ -15,6 +15,26 @@ def correlation_id(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "") or "")
 
 
+def http_error(
+    *,
+    status_code: int,
+    error_code: str,
+    message: str,
+    correlation_id: str = "",
+    support: bool = False,
+) -> HTTPException:
+    """Build a structured API error (client or server) with standard payload."""
+    return HTTPException(
+        status_code=status_code,
+        detail=error_payload(
+            error_code=error_code,
+            message=message,
+            correlation_id=correlation_id or None,
+            support=support,
+        ),
+    )
+
+
 def http_server_error(
     exc: Exception,
     *,
@@ -29,12 +49,10 @@ def http_server_error(
         error_code=error_code,
         correlation_id=correlation_id,
     )
-    return HTTPException(
+    return http_error(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=error_payload(
-            error_code=error_code,
-            message=str(exc),
-            correlation_id=correlation_id or None,
-            support=True,
-        ),
+        error_code=error_code,
+        message=str(exc),
+        correlation_id=correlation_id,
+        support=True,
     )

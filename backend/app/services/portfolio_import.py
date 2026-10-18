@@ -238,11 +238,12 @@ async def build_base(
             upserts, on_conflict="portfolio_id,ticker"
         ).execute()
 
-    for ticker in existing_by_ticker:
-        if ticker not in keep:
-            client.table("portfolio_positions").delete().eq(
-                "portfolio_id", str(portfolio_id)
-            ).eq("ticker", ticker).execute()
+    stale = [t for t in existing_by_ticker if t not in keep]
+    if stale:
+        # One round-trip instead of N per-ticker deletes.
+        client.table("portfolio_positions").delete().eq(
+            "portfolio_id", str(portfolio_id)
+        ).in_("ticker", stale).execute()
 
     usd_cash = next(
         (p["quantity"] for p in priced if p["asset_class"] == "CASH" and p["ticker"] == "USD"),

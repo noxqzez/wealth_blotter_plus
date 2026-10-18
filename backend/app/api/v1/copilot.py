@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from backend.app.api.http_util import correlation_id, http_server_error
+from backend.app.api.http_util import correlation_id, http_error, http_server_error
 from backend.app.core.error_codes import (
     WBP_IMPORT_SERVER,
     WBP_SCENARIO_CLIENT,
     WBP_SCENARIO_SERVER,
-    error_payload,
 )
 from backend.app.core.rules_engine import RulesEngine, get_rules_engine
 from backend.app.core.security import AuthContext, get_current_user
@@ -38,25 +37,11 @@ def _http_fsm(exc: CopilotFsmError, *, cid: str) -> HTTPException:
     )
 
 
-def _http_not_found(
-    *,
-    cid: str,
-    message: str | None = None,
-) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=error_payload(
-            error_code=WBP_SCENARIO_CLIENT,
-            message=message
-            or (
-                "Chat session expired or was reset (common after reloading the "
-                "task pane or restarting the backend). Reopen Copilot to start "
-                "a new session, then continue from Import securities."
-            ),
-            correlation_id=cid or None,
-            support=False,
-        ),
-    )
+_SESSION_GONE = (
+    "Chat session expired or was reset (common after reloading the "
+    "task pane or restarting the backend). Reopen Copilot to start "
+    "a new session, then continue from Import securities."
+)
 
 
 @router.post("/sessions", response_model=CopilotSessionCreateResponse)
@@ -100,7 +85,12 @@ async def post_copilot_action(
             limits=limits,
         )
     except CopilotSessionError as exc:
-        raise _http_not_found(cid=cid, message=str(exc)) from exc
+        raise http_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            error_code=WBP_SCENARIO_CLIENT,
+            message=str(exc) or _SESSION_GONE,
+            correlation_id=cid,
+        ) from exc
     except CopilotFsmError as exc:
         raise _http_fsm(exc, cid=cid) from exc
     except Exception as exc:  # noqa: BLE001
@@ -134,7 +124,12 @@ async def post_copilot_message(
             limits=limits,
         )
     except CopilotSessionError as exc:
-        raise _http_not_found(cid=cid, message=str(exc)) from exc
+        raise http_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            error_code=WBP_SCENARIO_CLIENT,
+            message=str(exc) or _SESSION_GONE,
+            correlation_id=cid,
+        ) from exc
     except CopilotFsmError as exc:
         raise _http_fsm(exc, cid=cid) from exc
     except Exception as exc:  # noqa: BLE001

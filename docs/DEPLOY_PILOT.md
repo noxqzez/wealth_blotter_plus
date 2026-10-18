@@ -157,6 +157,8 @@ Blueprint service `wealth-blotter-plus-excel`.
 - [ ] Build: `npm ci && npm run build` → publish `dist`
 - [ ] Branch **`main`**
 - [ ] Build-time env: `VITE_API_BASE_URL=https://<api-service>.onrender.com` (no trailing slash)
+- [ ] Set Excel manifest `AppDomain` for Supabase to your real project URL  
+  (`https://<ref>.supabase.co`) — repo default is `YOUR_PROJECT_REF` placeholder for public GitHub
 - [ ] After deploy, verify:
   - `…/index.html` loads
   - `…/manifest.pilot.xml` downloads
@@ -223,6 +225,7 @@ CORS_ORIGINS=https://localhost:3000,https://<excel-static-host>
 
 ## Related docs
 
+- [PUBLIC_GITHUB.md](PUBLIC_GITHUB.md) — hygiene before making the GitHub repo public  
 - [PILOT_PHASE1.md](PILOT_PHASE1.md) — host env + Render wiring narrative  
 - [PILOT.md](../PILOT.md) — what pilots do  
 - [RAG_POC.md](../backend/app/db/RAG_POC.md) — upload guards + bucket  

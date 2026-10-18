@@ -17,7 +17,8 @@
   <AppDomains>
     <AppDomain>https://wealth-blotter-plus-excel.onrender.com</AppDomain>
     <AppDomain>https://wealth-blotter-plus.onrender.com</AppDomain>
-    <AppDomain>https://jszxqpftfoglhtwmtevq.supabase.co</AppDomain>
+    <!-- Replace with your Supabase project URL before pilot sideload (not a secret, but project-specific). -->
+    <AppDomain>https://YOUR_PROJECT_REF.supabase.co</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>

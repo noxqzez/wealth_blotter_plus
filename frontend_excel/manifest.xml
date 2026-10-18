@@ -19,7 +19,8 @@
     <AppDomain>https://wealth-blotter-plus-excel.onrender.com</AppDomain>
     <!-- Required when Excel SSO dialog opens the hosted API / Supabase OAuth -->
     <AppDomain>https://wealth-blotter-plus.onrender.com</AppDomain>
-    <AppDomain>https://jszxqpftfoglhtwmtevq.supabase.co</AppDomain>
+    <!-- Replace with your Supabase project URL for local SSO/AppDomain allow-list. -->
+    <AppDomain>https://YOUR_PROJECT_REF.supabase.co</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>

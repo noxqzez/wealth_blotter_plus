@@ -1,9 +1,20 @@
-# Environment & secrets
+# Environment & secrets — never commit real credentials
 .env
+.env.*
+!.env.example
+!**/.env.example
+# Hosted Excel build may bake a non-secret public API URL only:
+!frontend_excel/.env.production
 .env.local
 .env.*.local
 *.pem
 *.key
+*.p12
+*.pfx
+.streamlit/secrets.toml
+**/credentials.json
+**/service-account*.json
+**/google-services.json
 
 # Python
 .venv/
@@ -30,9 +41,6 @@ frontend_excel/.vite/
 frontend_excel/.certs/
 *.local
 
-# Streamlit
-.streamlit/secrets.toml
-
 # IDE / OS
 .DS_Store
 .idea/
@@ -44,11 +52,13 @@ frontend_excel/.certs/
 *.crt
 !frontend_excel/**/*.example.*
 
-# Logs & temp
+# Logs & temp (including local screenshots / scratch)
 *.log
 tmp/
 temp/
 .cache/
+**/_tmp*
+tests/_tmp*
 
 # Past Analogue A/B run captures + Tavily query cache (local eval outputs)
 artifacts/past_analogue/**

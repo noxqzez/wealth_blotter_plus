@@ -1,6 +1,6 @@
 # Wealth Blotter Plus — Agent Rules
 
-Project root: `/Users/oscarferrari/Documents/wealth_blotter_plus`
+Project root: repository checkout of `wealth_blotter_plus`
 
 Cursor also loads machine-readable copies from `.cursor/rules/` (hidden).
 **Visible copies for humans:** see the `rules/` folder in this project.

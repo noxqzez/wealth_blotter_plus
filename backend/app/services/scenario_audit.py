@@ -14,9 +14,8 @@ from uuid import UUID
 
 import structlog
 
-from backend.app.core.supabase import get_service_supabase
 from backend.app.schemas.compliance import AuditSourceType
-from backend.app.services.anonymize import anonymize_entity_refs, anonymize_payload
+from backend.app.services.audit_events import insert_audit_event_row
 
 logger = structlog.get_logger(__name__)
 
@@ -119,26 +118,19 @@ def write_scenario_step_audit(
     }
 
     try:
-        client = get_service_supabase()
-        result = (
-            client.table("audit_events")
-            .insert(
-                {
-                    "source_type": source_type,
-                    "source_name": SOURCE_SCENARIO_WF02,
-                    "event_action": f"scenario_step_{step}",
-                    "event_type": "scenario_workflow",
-                    "advisor_id": str(advisor_id) if advisor_id else None,
-                    "actor_id": str(advisor_id) if advisor_id else None,
-                    "session_id": str(scenario_run_id),
-                    "entity_refs": anonymize_entity_refs(entity_refs),
-                    "payload": anonymize_payload(payload),
-                    "normalized_params": anonymize_payload(normalized),
-                }
-            )
-            .execute()
+        row = insert_audit_event_row(
+            source_type=source_type,
+            source_name=SOURCE_SCENARIO_WF02,
+            event_action=f"scenario_step_{step}",
+            event_type="scenario_workflow",
+            advisor_id=advisor_id,
+            actor_id=advisor_id,
+            session_id=str(scenario_run_id),
+            entity_refs=entity_refs,
+            payload=payload,
+            normalized_params=normalized,
         )
-        row_id = str(result.data[0]["id"]) if result.data else None
+        row_id = str(row["id"]) if row.get("id") else None
         logger.info(
             "scenario_step_audit_written",
             scenario_run_id=str(scenario_run_id),

@@ -535,29 +535,6 @@ def place_all_staged_orders(
     }
 
 
-def record_usage_metric(
-    *,
-    event_action: str,
-    endpoint_or_component: str,
-    client_alias: str | None = None,
-    execution_time_ms: int | None = None,
-    metadata: Mapping[str, Any] | None = None,
-) -> None:
-    """Best-effort usage_metrics insert (PDF downloads, latency)."""
-    try:
-        _client().table("usage_metrics").insert(
-            {
-                "event_action": event_action,
-                "endpoint_or_component": endpoint_or_component,
-                "client_alias": client_alias,
-                "execution_time_ms": execution_time_ms,
-                "metadata": dict(metadata or {}),
-            }
-        ).execute()
-    except Exception as exc:  # noqa: BLE001 — telemetry must not fail the request
-        logger.warning("usage_metrics_insert_failed", error=str(exc))
-
-
 def _load_portfolio_for_scenario(portfolio_id: UUID) -> dict[str, Any]:
     try:
         result = (
@@ -1865,6 +1842,5 @@ __all__ = [
     "mark_run_failed",
     "parse_and_create_run",
     "place_all_staged_orders",
-    "record_usage_metric",
     "update_scenario_params",
 ]

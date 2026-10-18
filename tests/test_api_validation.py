@@ -54,7 +54,7 @@ def test_golden_import_validation(
         # Optional API mapping check (domain error → 400).
         if expect.get("http_status") == 400:
 
-            async def _boom(_payload):  # noqa: ANN001
+            async def _boom(_payload, **_kwargs):  # noqa: ANN001
                 raise ImportValidationError(str(exc_info.value))
 
             monkeypatch.setattr(

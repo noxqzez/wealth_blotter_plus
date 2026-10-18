@@ -70,3 +70,7 @@ plugins = ["pydantic.mypy"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "e2e: API/Copilot golden-path tests with mocked external I/O",
+    "live_llm: hits local Ollama/CrewAI (enabled when WBP_LIVE_LLM=1)",
+]

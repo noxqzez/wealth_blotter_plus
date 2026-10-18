@@ -5,6 +5,7 @@ from __future__ import annotations
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from backend.app.api.http_util import correlation_id, http_server_error
 from backend.app.core.error_codes import (
     WBP_IMPORT_BUILD,
     WBP_IMPORT_SERVER,
@@ -27,45 +28,19 @@ router = APIRouter()
 logger = structlog.get_logger(__name__)
 
 
-def _correlation_id(request: Request) -> str:
-    return str(getattr(request.state, "correlation_id", "") or "")
-
-
 def _http_validation(
     exc: ImportValidationError,
     *,
     error_code: str,
-    correlation_id: str,
+    cid: str,
 ) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=error_payload(
             error_code=error_code,
             message=str(exc),
-            correlation_id=correlation_id or None,
+            correlation_id=cid or None,
             support=False,
-        ),
-    )
-
-
-def _http_server(
-    exc: Exception,
-    *,
-    correlation_id: str,
-) -> HTTPException:
-    logger.exception(
-        "portfolio_import_server_error",
-        error=str(exc),
-        error_code=WBP_IMPORT_SERVER,
-        correlation_id=correlation_id,
-    )
-    return HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=error_payload(
-            error_code=WBP_IMPORT_SERVER,
-            message=str(exc),
-            correlation_id=correlation_id or None,
-            support=True,
         ),
     )
 
@@ -77,15 +52,20 @@ async def portfolios_validate_import(
     user: AuthContext = Depends(get_current_user),
 ) -> ValidateImportResponse:
     """Boundary checks, ticker/Ccy normalization, draft_folio staging."""
-    cid = _correlation_id(request)
+    cid = correlation_id(request)
     try:
         result = await validate_import(payload, advisor_id=user.advisor_id)
     except ImportValidationError as exc:
         raise _http_validation(
-            exc, error_code=WBP_IMPORT_VALIDATE, correlation_id=cid
+            exc, error_code=WBP_IMPORT_VALIDATE, cid=cid
         ) from exc
     except Exception as exc:  # noqa: BLE001 — map to support code
-        raise _http_server(exc, correlation_id=cid) from exc
+        raise http_server_error(
+            exc,
+            error_code=WBP_IMPORT_SERVER,
+            correlation_id=cid,
+            log_event="portfolio_import_server_error",
+        ) from exc
 
     try:
         await write_application_event(
@@ -123,16 +103,21 @@ async def portfolios_build_base(
     rules: RulesEngine = Depends(get_rules_engine),
 ) -> BuildBaseResponse:
     """Yahoo enrichment, drop invalid tickers, commit base_folio with PosIDs."""
-    cid = _correlation_id(request)
+    cid = correlation_id(request)
     limits = await rules.get_technical_limits()
     try:
         result = await build_base(payload, limits=limits)
     except ImportValidationError as exc:
         raise _http_validation(
-            exc, error_code=WBP_IMPORT_BUILD, correlation_id=cid
+            exc, error_code=WBP_IMPORT_BUILD, cid=cid
         ) from exc
     except Exception as exc:  # noqa: BLE001
-        raise _http_server(exc, correlation_id=cid) from exc
+        raise http_server_error(
+            exc,
+            error_code=WBP_IMPORT_SERVER,
+            correlation_id=cid,
+            log_event="portfolio_import_server_error",
+        ) from exc
 
     try:
         await write_application_event(

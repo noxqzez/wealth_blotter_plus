@@ -50,6 +50,10 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "live_llm: hits local Ollama/CrewAI (enabled when WBP_LIVE_LLM=1)",
     )
+    config.addinivalue_line(
+        "markers",
+        "e2e: API/Copilot golden-path tests with mocked external I/O",
+    )
 
 
 def pytest_collection_modifyitems(

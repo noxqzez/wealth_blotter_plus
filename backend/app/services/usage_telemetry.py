@@ -17,6 +17,7 @@ def record_usage_metric(
     event_action: str,
     endpoint_or_component: str,
     advisor_id: UUID | None = None,
+    client_alias: str | None = None,
     execution_time_ms: int | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> None:
@@ -29,6 +30,8 @@ def record_usage_metric(
         }
         if advisor_id is not None:
             row["advisor_id"] = str(advisor_id)
+        if client_alias is not None:
+            row["client_alias"] = client_alias
         if execution_time_ms is not None:
             row["execution_time_ms"] = int(execution_time_ms)
         get_service_supabase().table("usage_metrics").insert(row).execute()

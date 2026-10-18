@@ -27,29 +27,64 @@ def _row_to_event(row: dict[str, Any]) -> AuditEventRead:
     return AuditEventRead.model_validate(row)
 
 
+def insert_audit_event_row(
+    *,
+    source_type: str,
+    source_name: str,
+    event_action: str,
+    event_type: str | None = None,
+    advisor_id: UUID | None = None,
+    actor_id: UUID | None = None,
+    session_id: str | None = None,
+    entity_refs: dict[str, Any] | None = None,
+    payload: dict[str, Any] | None = None,
+    normalized_params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Sync insert into ``audit_events`` with mandatory anonymization.
+
+    Shared by async API writers and sync scenario-step telemetry.
+    Returns the inserted row dict.
+    """
+    client = get_service_supabase()
+    body: dict[str, Any] = {
+        "source_type": source_type,
+        "source_name": source_name,
+        "event_action": event_action,
+        "event_type": event_type,
+        "advisor_id": str(advisor_id) if advisor_id else None,
+        "session_id": session_id,
+        "actor_id": str(actor_id) if actor_id else None,
+        "entity_refs": anonymize_entity_refs(entity_refs or {}),
+        "payload": anonymize_payload(payload or {}),
+        "normalized_params": anonymize_payload(normalized_params or {}),
+    }
+    result = client.table("audit_events").insert(body).execute()
+    if not result.data:
+        raise RuntimeError("audit_events insert returned no row")
+    return result.data[0]
+
+
 async def write_audit_event(event: AuditEventCreate) -> AuditEventRead:
     """
     Insert an immutable audit_events row via service role.
 
     Always anonymizes entity_refs / payload before persist.
     """
-    client = get_service_supabase()
-    body: dict[str, Any] = {
-        "source_type": event.source_type.value,
-        "source_name": event.source_name,
-        "event_action": event.event_action,
-        "event_type": event.event_type,
-        "advisor_id": str(event.advisor_id) if event.advisor_id else None,
-        "session_id": event.session_id,
-        "actor_id": str(event.actor_id) if event.actor_id else None,
-        "entity_refs": anonymize_entity_refs(event.entity_refs),
-        "payload": anonymize_payload(event.payload),
-        "normalized_params": anonymize_payload(event.normalized_params),
-    }
-    result = client.table("audit_events").insert(body).execute()
-    if not result.data:
-        raise RuntimeError("audit_events insert returned no row")
-    created = _row_to_event(result.data[0])
+    created = _row_to_event(
+        insert_audit_event_row(
+            source_type=event.source_type.value,
+            source_name=event.source_name,
+            event_action=event.event_action,
+            event_type=event.event_type,
+            advisor_id=event.advisor_id,
+            actor_id=event.actor_id,
+            session_id=event.session_id,
+            entity_refs=event.entity_refs,
+            payload=event.payload,
+            normalized_params=event.normalized_params,
+        )
+    )
     logger.info(
         "audit_event_written",
         audit_event_id=str(created.id),

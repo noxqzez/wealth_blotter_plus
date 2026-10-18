@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from backend.app.api.http_util import correlation_id, http_server_error
 from backend.app.core.error_codes import (
     WBP_IMPORT_SERVER,
     WBP_SCENARIO_CLIENT,
@@ -29,23 +29,18 @@ from backend.app.services.copilot_fsm import (
 from backend.app.services.copilot_session import CopilotSessionError
 
 router = APIRouter()
-logger = structlog.get_logger(__name__)
 
 
-def _correlation_id(request: Request) -> str:
-    return str(getattr(request.state, "correlation_id", "") or "")
-
-
-def _http_fsm(exc: CopilotFsmError, *, correlation_id: str) -> HTTPException:
+def _http_fsm(exc: CopilotFsmError, *, cid: str) -> HTTPException:
     return HTTPException(
         status_code=exc.http_status,
-        detail=exc.to_detail(correlation_id or None),
+        detail=exc.to_detail(cid or None),
     )
 
 
 def _http_not_found(
     *,
-    correlation_id: str,
+    cid: str,
     message: str | None = None,
 ) -> HTTPException:
     return HTTPException(
@@ -58,31 +53,8 @@ def _http_not_found(
                 "task pane or restarting the backend). Reopen Copilot to start "
                 "a new session, then continue from Import securities."
             ),
-            correlation_id=correlation_id or None,
+            correlation_id=cid or None,
             support=False,
-        ),
-    )
-
-
-def _http_server(
-    exc: Exception,
-    *,
-    error_code: str,
-    correlation_id: str,
-) -> HTTPException:
-    logger.exception(
-        "copilot_api_server_error",
-        error=str(exc),
-        error_code=error_code,
-        correlation_id=correlation_id,
-    )
-    return HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=error_payload(
-            error_code=error_code,
-            message=str(exc),
-            correlation_id=correlation_id or None,
-            support=True,
         ),
     )
 
@@ -93,13 +65,16 @@ async def create_copilot_session(
     user: AuthContext = Depends(get_current_user),
 ) -> CopilotSessionCreateResponse:
     """Create an in-memory Copilot session and return the INIT welcome turn."""
-    cid = _correlation_id(request)
+    cid = correlation_id(request)
     try:
         state = sessions.create_session(advisor_id=user.advisor_id)
         return build_welcome_response(state)
     except Exception as exc:  # noqa: BLE001
-        raise _http_server(
-            exc, error_code=WBP_IMPORT_SERVER, correlation_id=cid
+        raise http_server_error(
+            exc,
+            error_code=WBP_IMPORT_SERVER,
+            correlation_id=cid,
+            log_event="copilot_api_server_error",
         ) from exc
 
 
@@ -115,7 +90,7 @@ async def post_copilot_action(
     rules: RulesEngine = Depends(get_rules_engine),
 ) -> CopilotAgentResponse:
     """Opaque action handler — advances the linear FSM."""
-    cid = _correlation_id(request)
+    cid = correlation_id(request)
     limits = await rules.get_technical_limits()
     try:
         return await handle_action(
@@ -125,12 +100,15 @@ async def post_copilot_action(
             limits=limits,
         )
     except CopilotSessionError as exc:
-        raise _http_not_found(correlation_id=cid, message=str(exc)) from exc
+        raise _http_not_found(cid=cid, message=str(exc)) from exc
     except CopilotFsmError as exc:
-        raise _http_fsm(exc, correlation_id=cid) from exc
+        raise _http_fsm(exc, cid=cid) from exc
     except Exception as exc:  # noqa: BLE001
-        raise _http_server(
-            exc, error_code=WBP_SCENARIO_SERVER, correlation_id=cid
+        raise http_server_error(
+            exc,
+            error_code=WBP_SCENARIO_SERVER,
+            correlation_id=cid,
+            log_event="copilot_api_server_error",
         ) from exc
 
 
@@ -146,7 +124,7 @@ async def post_copilot_message(
     rules: RulesEngine = Depends(get_rules_engine),
 ) -> CopilotAgentResponse:
     """Free-text handler (ops lookups / scenario prompt / param edits)."""
-    cid = _correlation_id(request)
+    cid = correlation_id(request)
     limits = await rules.get_technical_limits()
     try:
         return await handle_message(
@@ -156,10 +134,13 @@ async def post_copilot_message(
             limits=limits,
         )
     except CopilotSessionError as exc:
-        raise _http_not_found(correlation_id=cid, message=str(exc)) from exc
+        raise _http_not_found(cid=cid, message=str(exc)) from exc
     except CopilotFsmError as exc:
-        raise _http_fsm(exc, correlation_id=cid) from exc
+        raise _http_fsm(exc, cid=cid) from exc
     except Exception as exc:  # noqa: BLE001
-        raise _http_server(
-            exc, error_code=WBP_SCENARIO_SERVER, correlation_id=cid
+        raise http_server_error(
+            exc,
+            error_code=WBP_SCENARIO_SERVER,
+            correlation_id=cid,
+            log_event="copilot_api_server_error",
         ) from exc

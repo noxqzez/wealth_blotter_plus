@@ -1,7 +1,8 @@
 # Phase 1 Pilot — what you configure & what you give pilots
 
 **Deploy reminder:** ship production / pilot access from Git branch **`main` only**
-(not `develop/next`). Security + smoke checklist: [DEPLOY_PILOT.md](DEPLOY_PILOT.md).
+(not `develop/next`). Full infra checklist (migrations, Resend, FastAPI/Render env,
+Excel Static Site, CORS, RAG/Past Analogue, smoke): [DEPLOY_PILOT.md](DEPLOY_PILOT.md).
 
 ## A. Apply database migration (your Supabase project)
 

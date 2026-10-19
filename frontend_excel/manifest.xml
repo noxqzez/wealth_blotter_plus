@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  LOCAL DEV ONLY (mkcert HTTPS on localhost:3000).
+  Pilots: use manifest.pilot.LIVE.xml from the host (email attachment).
+  Self-host / public clone: fill manifest.pilot.xml placeholders.
+-->
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -10,16 +15,13 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Copilot"/>
   <Description DefaultValue="Advisory task pane — portfolio import, scenario, and staged orders."/>
-  <!-- Local dev only. Pilots use manifest.pilot.xml (hosted pane). -->
   <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://localhost:3000"/>
   <AppDomains>
     <AppDomain>https://localhost:3000</AppDomain>
-    <AppDomain>https://wealth-blotter-plus-excel.onrender.com</AppDomain>
-    <!-- Required when Excel SSO dialog opens the hosted API / Supabase OAuth -->
-    <AppDomain>https://wealth-blotter-plus.onrender.com</AppDomain>
-    <!-- Replace with your Supabase project URL for local SSO/AppDomain allow-list. -->
+    <AppDomain>https://YOUR_EXCEL_HOST</AppDomain>
+    <AppDomain>https://YOUR_API_HOST</AppDomain>
     <AppDomain>https://YOUR_PROJECT_REF.supabase.co</AppDomain>
   </AppDomains>
   <Hosts>

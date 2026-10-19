@@ -140,11 +140,12 @@ Do **not** put a Render API key in this app’s `.env`.
 ## D. What to give each pilot user
 
 1. **Request access URL**: `https://<api-service>.onrender.com/request-access`
-2. **Manifest download URL**: `https://<excel-static>.onrender.com/manifest.pilot.xml`  
-   (or attach the file)
+2. **Manifest**: attach **`frontend_excel/manifest.pilot.LIVE.xml`** (gitignored live hosts) —  
+   not the placeholder `manifest.pilot.xml` in git. See [frontend_excel/MANIFESTS.md](../frontend_excel/MANIFESTS.md).
 3. Point them at **[PILOT.md](../PILOT.md)** — short walkthrough (no GitHub / Node / mkcert)
 
-You do **not** give them: GitHub access, service role key, JWT secret, Render credentials, or other pilots’ data.
+You do **not** give them: GitHub access, service role key, JWT secret, Render credentials,
+Supabase dashboard secrets, or other pilots’ data.
 
 ---
 
@@ -166,7 +167,7 @@ You do **not** give them: GitHub access, service role key, JWT secret, Render cr
 | `ADMIN_API_KEY` | Secret for `/admin/pilots` (header `X-Admin-Key`) |
 | `RESEND_API_KEY` | [Resend](https://resend.com) API key |
 | `PILOT_WELCOME_FROM_EMAIL` | Verified From, e.g. `Wealth Blotter <pilots@yourdomain.com>` |
-| `PILOT_MANIFEST_URL` | Link included in the email |
+| `PILOT_MANIFEST_URL` | Optional link; prefer attaching `manifest.pilot.LIVE.xml` once placeholders are in git |
 
 The email **never** includes the pilot’s password. Send is idempotent unless you check **Force resend**.
 

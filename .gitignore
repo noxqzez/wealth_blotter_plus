@@ -3,10 +3,13 @@
 .env.*
 !.env.example
 !**/.env.example
-# Hosted Excel build may bake a non-secret public API URL only:
+# Hosted Excel: prefer Render build env VITE_API_BASE_URL over committing live hosts.
+# .env.production in git should stay placeholder-only (see frontend_excel/.env.production).
 !frontend_excel/.env.production
 .env.local
 .env.*.local
+# Real pilot sideload manifest (email attachment) — never publish default hosts in git
+frontend_excel/manifest.pilot.LIVE.xml
 *.pem
 *.key
 *.p12
@@ -15,6 +18,7 @@
 **/credentials.json
 **/service-account*.json
 **/google-services.json
+
 
 # Python
 .venv/

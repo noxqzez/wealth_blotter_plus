@@ -18,7 +18,7 @@ You need:
 | # | Item | Example |
 |---|------|---------|
 | 1 | **Request access link** (browser signup) | `https://wealth-blotter-plus.onrender.com/request-access` |
-| 2 | **Add-in manifest** (download link or file) | `https://wealth-blotter-plus-excel.onrender.com/manifest.pilot.xml` |
+| 2 | **Add-in manifest** (email attachment) | File named `manifest.pilot.xml` or `manifest.pilot.LIVE.xml` from the host |
 
 If either is missing, email the host and stop here.
 
@@ -68,11 +68,11 @@ If either is missing, email the host and stop here.
 
 ---
 
-## Step C — Download the add-in manifest (once)
+## Step C — Get the add-in manifest (once)
 
-1. Open the **manifest download link** the host sent you  
-   (example: [https://wealth-blotter-plus-excel.onrender.com/manifest.pilot.xml](https://wealth-blotter-plus-excel.onrender.com/manifest.pilot.xml)).
-2. Save the file as **`manifest.pilot.xml`** somewhere easy to find (Downloads is fine).  
+1. Use the **manifest file attached to the welcome email** from the host  
+   (do **not** use a placeholder XML from GitHub — that is for self-hosters only).
+2. Save it as **`manifest.pilot.xml`** somewhere easy to find (Downloads is fine).  
    Do not rename it to `.txt`.
 
 You do **not** need GitHub, Terminal, Node.js, or `npm`.

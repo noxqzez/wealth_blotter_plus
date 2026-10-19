@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  PUBLIC / SELF-HOST TEMPLATE (safe to commit).
+  Replace YOUR_EXCEL_HOST, YOUR_API_HOST, and YOUR_PROJECT_REF before sideload.
+
+  Trusted Wealth Blotter Plus pilots: do NOT use this file.
+  Use manifest.pilot.LIVE.xml (gitignored) — host emails that attachment.
+-->
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -10,21 +17,19 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Copilot"/>
   <Description DefaultValue="Advisory task pane — portfolio import, scenario, and staged orders."/>
-  <!-- Hosted task pane (Render Static Site). Change hostname if your Static Site name differs. -->
-  <IconUrl DefaultValue="https://wealth-blotter-plus-excel.onrender.com/assets/icon-32.png"/>
-  <HighResolutionIconUrl DefaultValue="https://wealth-blotter-plus-excel.onrender.com/assets/icon-64.png"/>
-  <SupportUrl DefaultValue="https://wealth-blotter-plus.onrender.com/request-access"/>
+  <IconUrl DefaultValue="https://YOUR_EXCEL_HOST/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://YOUR_EXCEL_HOST/assets/icon-64.png"/>
+  <SupportUrl DefaultValue="https://YOUR_API_HOST/request-access"/>
   <AppDomains>
-    <AppDomain>https://wealth-blotter-plus-excel.onrender.com</AppDomain>
-    <AppDomain>https://wealth-blotter-plus.onrender.com</AppDomain>
-    <!-- Replace with your Supabase project URL before pilot sideload (not a secret, but project-specific). -->
+    <AppDomain>https://YOUR_EXCEL_HOST</AppDomain>
+    <AppDomain>https://YOUR_API_HOST</AppDomain>
     <AppDomain>https://YOUR_PROJECT_REF.supabase.co</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>
   </Hosts>
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://wealth-blotter-plus-excel.onrender.com/index.html"/>
+    <SourceLocation DefaultValue="https://YOUR_EXCEL_HOST/index.html"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
 </OfficeApp>

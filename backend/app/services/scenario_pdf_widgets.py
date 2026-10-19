@@ -40,7 +40,7 @@ from backend.app.services.scenario_pdf_theme import (
 from backend.app.services.scenario_talking_points import sanitize_client_commentary
 
 class _EyebrowPill(Flowable):
-    """Fixed grey pill matching the Gamma sample header chip."""
+    """Fixed grey pill for the confidential header chip."""
 
     def __init__(self, text: str) -> None:
         super().__init__()

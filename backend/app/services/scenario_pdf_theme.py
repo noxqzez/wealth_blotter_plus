@@ -11,7 +11,7 @@ from reportlab.lib.units import inch
 from backend.app.schemas.scenario import ClientPortfolioMetrics
 
 # Bump only when deliberately changing the locked one-pager composition.
-_LAYOUT_VERSION = "jpm-v1-locked"
+_LAYOUT_VERSION = "one-pager-v1-locked"
 
 _PAGE = letter
 _MARGIN = 0.55 * inch

@@ -1,8 +1,8 @@
 """Deterministic client portfolio-review PDF (institutional confidential theme).
 
-LAYOUT LOCKED (jpm-v1) — do not reshuffle the one-pager without an explicit
-product decision. Fixed single-page composition so successive runs stay visually
-identical in structure:
+LAYOUT LOCKED (one-pager-v1) — do not reshuffle the one-pager without an
+explicit product decision. Fixed single-page composition so successive runs
+stay visually identical in structure:
 
   eyebrow → title → chart subtitle → performance chart (+ x-axis dates)
   → bold scenario summary line → 3 equal cards (stats | donut | commentary)
@@ -199,7 +199,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
     return {
         "title": ParagraphStyle(
-            "JpmTitle",
+            "WbpTitle",
             parent=base["Heading1"],
             fontName="Helvetica",
             fontSize=18,
@@ -209,7 +209,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             spaceAfter=0,
         ),
         "subtitle": ParagraphStyle(
-            "JpmSubtitle",
+            "WbpSubtitle",
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=11,
@@ -218,7 +218,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             alignment=TA_LEFT,
         ),
         "callout": ParagraphStyle(
-            "JpmCallout",
+            "WbpCallout",
             parent=base["Normal"],
             fontName="Helvetica-Bold",
             fontSize=10,
@@ -227,7 +227,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             alignment=TA_LEFT,
         ),
         "card_title": ParagraphStyle(
-            "JpmCardTitle",
+            "WbpCardTitle",
             parent=base["Normal"],
             fontName="Helvetica-Bold",
             fontSize=10,
@@ -236,7 +236,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             alignment=TA_LEFT,
         ),
         "stat_label": ParagraphStyle(
-            "JpmStatLabel",
+            "WbpStatLabel",
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=8,
@@ -245,7 +245,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             alignment=TA_LEFT,
         ),
         "stat_value": ParagraphStyle(
-            "JpmStatValue",
+            "WbpStatValue",
             parent=base["Normal"],
             fontName="Helvetica-Bold",
             fontSize=8.5,
@@ -254,7 +254,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             alignment=TA_RIGHT,
         ),
         "stat_value_accent": ParagraphStyle(
-            "JpmStatValueAccent",
+            "WbpStatValueAccent",
             parent=base["Normal"],
             fontName="Helvetica-Bold",
             fontSize=8.5,
@@ -263,7 +263,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             alignment=TA_RIGHT,
         ),
         "legend": ParagraphStyle(
-            "JpmLegend",
+            "WbpLegend",
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=7.5,
@@ -271,7 +271,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             textColor=_INK,
         ),
         "bullet": ParagraphStyle(
-            "JpmBullet",
+            "WbpBullet",
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=6,
@@ -280,7 +280,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             alignment=TA_LEFT,
         ),
         "muted": ParagraphStyle(
-            "JpmMuted",
+            "WbpMuted",
             parent=base["Normal"],
             fontName="Helvetica-Oblique",
             fontSize=8,
@@ -288,7 +288,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             textColor=_MUTED,
         ),
         "footer": ParagraphStyle(
-            "JpmFooter",
+            "WbpFooter",
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=7,

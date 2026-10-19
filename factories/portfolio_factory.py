@@ -19,7 +19,7 @@ AssetClass = Literal["EQUITY", "CRYPTO", "CASH"]
 _EQUITY_UNIVERSE: tuple[tuple[str, str, float], ...] = (
     ("AAPL", "Apple Inc", 190.0),
     ("MSFT", "Microsoft", 420.0),
-    ("JPM", "JPMorgan Chase", 198.0),
+    ("JPM", "Regional Bank Corp", 198.0),
     ("NVDA", "NVIDIA", 875.0),
     ("0700.HK", "Tencent", 380.0),
     ("9988.HK", "Alibaba", 88.0),
@@ -256,7 +256,7 @@ class PortfolioFactory:
         raw: list[tuple[str, AssetClass, str, float, float]] = [
             ("AAPL", "EQUITY", "Apple Inc", 250.0, 190.0),  # ~47.5k
             ("MSFT", "EQUITY", "Microsoft", 20.0, 420.0),
-            ("JPM", "EQUITY", "JPMorgan Chase", 30.0, 198.0),
+            ("JPM", "EQUITY", "Regional Bank Corp", 30.0, 198.0),
             ("USD", "CASH", "US Dollar", 8_000.0, 1.0),
             ("BTC-USD", "CRYPTO", "Bitcoin", 0.05, 65_000.0),
         ]

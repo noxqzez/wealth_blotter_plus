@@ -202,7 +202,7 @@ async def test_confirm_auto_triggers_run(
         )
 
     monkeypatch.setattr(
-        "backend.app.services.copilot_actions._handle_run",
+        "backend.app.services.copilot_actions_workflow._handle_run",
         _fake_run,
     )
     resp = await handle_action(
@@ -350,7 +350,7 @@ async def test_rating_saved_once_per_simulation(
         return {"rating": kwargs["rating"]}
 
     monkeypatch.setattr(
-        "backend.app.services.copilot_actions.save_interaction_rating",
+        "backend.app.services.copilot_actions_workflow.save_interaction_rating",
         _fake_save,
     )
 
@@ -411,7 +411,7 @@ async def test_rating_skip_does_not_persist(
         raise AssertionError("skip must not persist a rating")
 
     monkeypatch.setattr(
-        "backend.app.services.copilot_actions.save_interaction_rating",
+        "backend.app.services.copilot_actions_workflow.save_interaction_rating",
         _boom,
     )
 

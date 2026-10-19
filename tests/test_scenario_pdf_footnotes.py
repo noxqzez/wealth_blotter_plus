@@ -1,4 +1,4 @@
-"""PDF render — JPM-style one-pager smoke tests."""
+"""PDF render — institutional one-pager smoke tests."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from backend.app.services.scenario_pdf import (
 )
 
 
-def test_jpm_pdf_renders_with_chart_and_cards() -> None:
+def test_one_pager_pdf_renders_with_chart_and_cards() -> None:
     pdf = build_scenario_pdf(
         scenario_name="Tencent stock to plunge",
         client_alias="Acme Family",
@@ -115,7 +115,7 @@ def test_format_scenario_summary_line() -> None:
     )
 
 
-def test_jpm_pdf_stable_without_performance() -> None:
+def test_one_pager_pdf_stable_without_performance() -> None:
     pdf = build_scenario_pdf(
         scenario_name="x",
         client_alias="Client",

@@ -1,4 +1,4 @@
-"""JPMorgan Private Bank aesthetic tokens for the exec monitor."""
+"""Exec monitor aesthetic tokens (Wealth Blotter Plus)."""
 
 from __future__ import annotations
 

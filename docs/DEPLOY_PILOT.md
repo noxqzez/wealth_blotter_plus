@@ -156,17 +156,14 @@ Blueprint service `wealth-blotter-plus-excel`.
 - [ ] Root directory `frontend_excel`
 - [ ] Build: `npm ci && npm run build` → publish `dist`
 - [ ] Branch **`main`**
-- [ ] Build-time env: `VITE_API_BASE_URL=https://<api-service>.onrender.com` (no trailing slash)
-- [ ] Set Excel manifest `AppDomain` for Supabase to your real project URL  
-  (`https://<ref>.supabase.co`) — repo default is `YOUR_PROJECT_REF` placeholder for public GitHub
+- [ ] Build-time env **required**: `VITE_API_BASE_URL=https://<api-service>.onrender.com` (no trailing slash).  
+  Repo `.env.production` is a `YOUR_API_HOST` placeholder for public GitHub.
+- [ ] Committed manifests use `YOUR_EXCEL_HOST` / `YOUR_API_HOST` / `YOUR_PROJECT_REF` — see [frontend_excel/MANIFESTS.md](../frontend_excel/MANIFESTS.md)
+- [ ] Email pilots **`manifest.pilot.LIVE.xml`** (gitignored; local file with real Render hosts) — do not rely on the Static Site `…/manifest.pilot.xml` once placeholders are deployed
 - [ ] After deploy, verify:
   - `…/index.html` loads
-  - `…/manifest.pilot.xml` downloads
   - `…/assets/icon-32.png` returns an image
-- [ ] If hostname ≠ `wealth-blotter-plus-excel.onrender.com`, update both:
-  - `frontend_excel/manifest.pilot.xml`
-  - `frontend_excel/public/manifest.pilot.xml`  
-  then redeploy Static Site **and** refresh `PILOT_MANIFEST_URL` / `PILOT_EXCEL_BASE_URL` on the API
+  - API calls from the pane succeed (confirms `VITE_API_BASE_URL` on Render)
 
 ---
 

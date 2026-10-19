@@ -64,6 +64,13 @@ export type GuardrailCheck = {
   suggested_fix?: string | null;
 };
 
+export type ExcelValueFontStyle = {
+  column: string;
+  equals: string;
+  bold?: boolean;
+  font_color?: string | null;
+};
+
 export type ExcelWriteSpec = {
   sheet_name: string;
   values: unknown[][];
@@ -76,6 +83,8 @@ export type ExcelWriteSpec = {
   header_bold?: boolean;
   header_horizontal_alignment?: "left" | "center" | "right" | null;
   table_border?: boolean;
+  /** Bold/color data cells that match a column value (e.g. BUY/SELL). */
+  value_font_styles?: ExcelValueFontStyle[];
 };
 
 export type DownloadArtifact = {
@@ -813,6 +822,36 @@ async function applyExcelWrite(spec: ExcelWriteSpec): Promise<void> {
           applyContinuousBorder(
             sheet.getRangeByIndexes(headerRow, 0, rows, usedCols),
           );
+        }
+
+        const valueStyles = spec.value_font_styles ?? [];
+        if (valueStyles.length > 0) {
+          const span = dataRowSpan(padded, headerRow, nextHeader);
+          if (span) {
+            for (const rule of valueStyles) {
+              const col = headers.findIndex(
+                (h) =>
+                  h === rule.column ||
+                  normalizeHeader(h) === normalizeHeader(rule.column),
+              );
+              if (col < 0) continue;
+              const target = String(rule.equals ?? "")
+                .trim()
+                .toUpperCase();
+              for (let r = 0; r < span.count; r++) {
+                const rowIdx = span.start + r;
+                const cellVal = String(padded[rowIdx]?.[col] ?? "")
+                  .trim()
+                  .toUpperCase();
+                if (cellVal !== target) continue;
+                const cell = sheet.getRangeByIndexes(rowIdx, col, 1, 1);
+                if (rule.bold) cell.format.font.bold = true;
+                if (rule.font_color) {
+                  cell.format.font.color = normalizeFillHex(rule.font_color);
+                }
+              }
+            }
+          }
         }
       }
 

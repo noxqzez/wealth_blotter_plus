@@ -56,6 +56,11 @@ def test_ord_blotter_columns_and_defaults() -> None:
     assert spec.header_fill_colors.get("ticker") == "BDD7EE"
     assert spec.header_bold is True
     assert spec.table_border is True
+    styles = {(s.column, s.equals.upper()): s for s in spec.value_font_styles}
+    assert styles[("side", "BUY")].bold is True
+    assert styles[("side", "BUY")].font_color == "006600"
+    assert styles[("side", "SELL")].bold is True
+    assert styles[("side", "SELL")].font_color == "C00000"
     assert all(str(c) != "scenario_run_id" for r in spec.values for c in r)
 
 

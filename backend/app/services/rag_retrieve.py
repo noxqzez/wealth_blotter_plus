@@ -32,11 +32,14 @@ async def retrieve_research_chunks(
     query_vector = embed_query(query.strip(), settings=settings)
     client = get_service_supabase()
 
+    from backend.app.services.ticker_normalize import normalize_ticker
+
+    filter_ticker = normalize_ticker(ticker) if ticker else None
     params: dict[str, Any] = {
         "query_embedding": query_vector,
         "match_count": top_k,
         "filter_advisor_id": str(advisor_id),
-        "filter_ticker": ticker.strip().upper() if ticker else None,
+        "filter_ticker": filter_ticker or None,
         "filter_asset_class": asset_class.strip() if asset_class else None,
     }
 

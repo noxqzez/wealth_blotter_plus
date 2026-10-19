@@ -87,6 +87,22 @@ class GuardrailCheck(BaseModel):
     suggested_fix: str | None = None
 
 
+class ExcelValueFontStyle(BaseModel):
+    """Per-cell font style when a data cell equals a target value."""
+
+    column: str = Field(..., min_length=1, description="Header name of the column.")
+    equals: str = Field(
+        ...,
+        min_length=1,
+        description="Case-insensitive match against the cell text.",
+    )
+    bold: bool = False
+    font_color: str | None = Field(
+        default=None,
+        description="Excel hex without # (e.g. C00000 for red).",
+    )
+
+
 class ExcelWriteSpec(BaseModel):
     """Client applies these ONLY when returned from an action response."""
 
@@ -130,6 +146,12 @@ class ExcelWriteSpec(BaseModel):
     table_border: bool = Field(
         default=False,
         description="Apply a continuous border around/inside the written grid.",
+    )
+    value_font_styles: list[ExcelValueFontStyle] = Field(
+        default_factory=list,
+        description=(
+            "Optional data-cell font rules (e.g. bold green BUY / bold red SELL)."
+        ),
     )
 
 

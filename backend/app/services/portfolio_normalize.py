@@ -240,11 +240,12 @@ def _normalize_cash(raw: str) -> tuple[str, CurrencyLiteral]:
 
 
 def _normalize_equity(raw: str) -> tuple[str, CurrencyLiteral]:
+    from backend.app.services.ticker_normalize import normalize_hk_code
+
     t = raw.strip().upper()
-    if re.fullmatch(r"\d{4}\.HK", t):
-        return t, "HKD"
-    if re.fullmatch(r"\d{1,4}", t):
-        return f"{t.zfill(4)}.HK", "HKD"
+    hk = normalize_hk_code(t)
+    if hk is not None:
+        return hk, "HKD"
     if re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,31}", t):
         return t, "USD"
     raise ImportValidationError(

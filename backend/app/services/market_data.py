@@ -58,7 +58,11 @@ def fetch_market_quotes(
     max_retries = md.yahoo_max_retries
     max_workers = md.yahoo_max_concurrency
 
-    unique = sorted({t.strip().upper() for t in tickers if t and t.strip()})
+    from backend.app.services.ticker_normalize import normalize_ticker
+
+    unique = sorted(
+        {normalize_ticker(t) for t in tickers if t and str(t).strip()}
+    )
     quotes: dict[str, MarketQuote] = {
         t: MarketQuote(spot_price=0.0, short_name=t, listing_status="UNAVAILABLE")
         for t in unique
@@ -321,13 +325,22 @@ def fetch_news(
     max_articles = int(md.news_max_articles_per_query)
     max_retries = int(md.news_max_retries)
 
+    from backend.app.services.ticker_normalize import normalize_ticker
+
     tickers: list[str] = []
     for s in symbols or []:
-        t = str(s or "").strip().upper()
+        t = normalize_ticker(str(s or ""))
         if t and t not in _CASH:
             tickers.append(t)
-    equities = [t for t in tickers if not t.endswith("-USD")][:4]
-    cryptos = [t for t in tickers if t.endswith("-USD")][:2]
+    # Dedupe while preserving order
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for t in tickers:
+        if t not in seen:
+            seen.add(t)
+            ordered.append(t)
+    equities = [t for t in ordered if not t.endswith("-USD")][:4]
+    cryptos = [t for t in ordered if t.endswith("-USD")][:2]
     selected = equities + cryptos or ["AAPL", "BTC-USD"]
 
     articles: list[dict[str, object]] = []

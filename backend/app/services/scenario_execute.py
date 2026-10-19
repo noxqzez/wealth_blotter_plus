@@ -13,6 +13,7 @@ from backend.app.agents.scenario_crew import (
     build_stub_strategy_view,
     coin_temperature_from_config,
 )
+from backend.app.agents.sector_tilts import apply_sector_tilt_overrides
 from backend.app.core.error_codes import WBP_SCENARIO_SERVER
 from backend.app.schemas.rules import TechnicalLimits
 from backend.app.schemas.scenario import (
@@ -243,6 +244,11 @@ def _execute_phase1_sync(
             scenario_tone=scenario_params.scenario.tone,
         )
         strategist_impl = "in_house_priority_merge"
+    # Lexical sector themes (China/HK, tech, energy, …) overlay both stub and
+    # full strategist so empty RAG/news still honors explicit region cues.
+    strategy_view = apply_sector_tilt_overrides(
+        strategy_view, scenario_params.user_prompt or ""
+    )
     write_scenario_step_audit(
         **audit_kw,
         step=STEP_STRATEGIST,

@@ -305,7 +305,11 @@ async def _run_pipeline(job: dict[str, Any], cfg: Settings) -> DocumentIngestJob
         service_table("document_chunks").delete().eq("document_id", old_id).execute()
         service_table("document_registry").delete().eq("id", old_id).execute()
 
-    ticker = classification.ticker.strip().upper() if classification.ticker else None
+    from backend.app.services.ticker_normalize import normalize_ticker
+
+    ticker = (
+        normalize_ticker(classification.ticker) if classification.ticker else None
+    ) or None
     registry_row = {
         "advisor_id": str(advisor_id),
         "ingest_job_id": str(job_id),

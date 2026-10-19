@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Mapping
 
+from backend.app.services.ticker_normalize import normalize_ticker
+
 
 _SECTOR_BULL_CUES: tuple[str, ...] = (
     "surge",
@@ -166,9 +168,9 @@ SECTOR_THEMES: tuple[SectorTheme, ...] = (
                 "EQNR",
                 "ENB",
                 "TRP",
-                "857",
-                "883",
-                "386",
+                "0857.HK",
+                "0883.HK",
+                "0386.HK",
             }
         ),
         # "oil shock" / "brent $120" imply higher prices → energy equities bullish
@@ -216,9 +218,9 @@ SECTOR_THEMES: tuple[SectorTheme, ...] = (
                 "AMAT",
                 "LRCX",
                 "KLAC",
-                "700",
-                "9988",
-                "3690",
+                "0700.HK",
+                "9988.HK",
+                "3690.HK",
             }
         ),
     ),
@@ -250,11 +252,11 @@ SECTOR_THEMES: tuple[SectorTheme, ...] = (
                 "BLK",
                 "BX",
                 "KKR",
-                "5",
-                "939",
-                "1398",
-                "3988",
-                "2318",
+                "0005.HK",
+                "0939.HK",
+                "1398.HK",
+                "3988.HK",
+                "2318.HK",
             }
         ),
     ),
@@ -329,8 +331,8 @@ SECTOR_THEMES: tuple[SectorTheme, ...] = (
                 "EL",
                 "LULU",
                 "TJX",
-                "9992",
-                "2319",
+                "9992.HK",
+                "2319.HK",
             }
         ),
     ),
@@ -370,9 +372,9 @@ SECTOR_THEMES: tuple[SectorTheme, ...] = (
                 "DOW",
                 "ALB",
                 "SQM",
-                "2899",
-                "1088",
-                "1171",
+                "2899.HK",
+                "1088.HK",
+                "1171.HK",
             }
         ),
     ),
@@ -427,9 +429,9 @@ SECTOR_THEMES: tuple[SectorTheme, ...] = (
                 "HMC",
                 "STLA",
                 "RACE",
-                "1211",
-                "9866",
-                "2015",
+                "1211.HK",
+                "9866.HK",
+                "2015.HK",
             }
         ),
     ),
@@ -493,6 +495,74 @@ SECTOR_THEMES: tuple[SectorTheme, ...] = (
             }
         ),
     ),
+    SectorTheme(
+        "china_hk",
+        "China / Hong Kong equities",
+        (
+            "china",
+            "chinese",
+            "hong kong",
+            "hongkong",
+            "h-share",
+            "h shares",
+            "hshares",
+            "hang seng",
+            "hangseng",
+            "hsi",
+            "csi 300",
+            "csi300",
+            "a-share",
+            "a shares",
+            "ashares",
+            "tencent",
+            "alibaba",
+            "meituan",
+            "xiaomi",
+            "byd",
+            "hk equity",
+            "hk equities",
+            "hk stock",
+            "hk stocks",
+            "china stock",
+            "china stocks",
+            "chinese stock",
+            "chinese stocks",
+        ),
+        frozenset(
+            {
+                "0700.HK",
+                "9988.HK",
+                "3690.HK",
+                "1810.HK",
+                "9618.HK",
+                "9888.HK",
+                "1024.HK",
+                "2318.HK",
+                "0005.HK",
+                "0939.HK",
+                "1398.HK",
+                "3988.HK",
+                "0386.HK",
+                "0857.HK",
+                "0883.HK",
+                "0941.HK",
+                "1299.HK",
+                "2269.HK",
+                "1211.HK",
+                "2015.HK",
+                "9866.HK",
+                "9868.HK",
+                "9999.HK",
+                "9626.HK",
+                "6618.HK",
+                "2382.HK",
+                "2020.HK",
+                "1177.HK",
+                "1093.HK",
+                "2688.HK",
+            }
+        ),
+    ),
 )
 
 _SECTOR_CONVCTION = 0.72
@@ -541,12 +611,13 @@ def ticker_sector_tilt(
     """If ticker belongs to a tilted sector, return (sector_key, direction, conv)."""
     if not tilts:
         return None
-    t = str(ticker).strip().upper()
+    t = normalize_ticker(ticker)
     for theme in SECTOR_THEMES:
         direction = tilts.get(theme.key)
         if direction is None:
             continue
-        if t in theme.tickers:
+        theme_tickers = {normalize_ticker(x) for x in theme.tickers}
+        if t in theme_tickers:
             return theme.key, direction, _SECTOR_CONVCTION
     return None
 
@@ -563,9 +634,73 @@ def sector_tilt_summary_bits(tilts: Mapping[str, str]) -> list[str]:
     return bits
 
 
+def apply_sector_tilt_overrides(
+    strategy_view: "StrategyView",
+    user_prompt: str,
+) -> "StrategyView":
+    """
+    Overlay deterministic sector tilts onto an existing strategy_view.
+
+    Used for full (RAG/news) strategist output so prompts like
+    ``Chinese stocks rally`` still boost matching HK names when research
+    returns empty / tone-only defaults. Stub path already applies tilts
+    inline; re-applying is idempotent.
+    """
+    from backend.app.schemas.scenario import StrategyView
+
+    tilts = detect_sector_tilts(user_prompt)
+    if not tilts:
+        return strategy_view
+
+    updated = []
+    for av in strategy_view.asset_views:
+        hit = ticker_sector_tilt(av.asset, tilts)
+        if hit is None:
+            updated.append(av)
+            continue
+        sector_key, direction, conv = hit
+        view = "positive" if direction == "bull" else "cautious"
+        rationale = (av.rationale or "").strip()
+        override = f"{av.asset} {sector_key}-theme {direction} override"
+        if override.lower() not in rationale.lower():
+            rationale = f"{rationale} ({override}).".strip() if rationale else f"{override}."
+        if hasattr(av, "model_copy"):
+            updated.append(
+                av.model_copy(
+                    update={
+                        "final_view": view,
+                        "final_conviction": float(conv),
+                        "rationale": rationale[:500],
+                    }
+                )
+            )
+        else:
+            updated.append(av)
+
+    notes = list(strategy_view.notes or [])
+    bits = sector_tilt_summary_bits(tilts)
+    note = (
+        "sector_tilts="
+        + ",".join(f"{k}:{v}" for k, v in sorted(tilts.items()))
+        + "."
+    )
+    if note not in notes:
+        notes.append(note)
+    summary = strategy_view.summary or ""
+    if bits and "Sector tilts:" not in summary:
+        summary = f"{summary} Sector tilts: {'; '.join(bits)}.".strip()
+
+    if isinstance(strategy_view, StrategyView) and hasattr(strategy_view, "model_copy"):
+        return strategy_view.model_copy(
+            update={"asset_views": updated, "notes": notes, "summary": summary}
+        )
+    return strategy_view
+
+
 __all__ = [
     "SECTOR_THEMES",
     "SectorTheme",
+    "apply_sector_tilt_overrides",
     "detect_sector_tilts",
     "sector_tilt_summary_bits",
     "ticker_sector_tilt",

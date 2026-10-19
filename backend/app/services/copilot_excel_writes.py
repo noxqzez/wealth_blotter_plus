@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Sequence
 from uuid import UUID
 
-from backend.app.schemas.copilot import ExcelWriteSpec
+from backend.app.schemas.copilot import ExcelValueFontStyle, ExcelWriteSpec
 from backend.app.schemas.portfolio_import import EnrichedPosition
 from backend.app.schemas.scenario import ScenarioRunResponse
 
@@ -267,6 +267,14 @@ def build_ord_blotter_write(
         header_bold=True,
         header_horizontal_alignment="center",
         table_border=True,
+        value_font_styles=[
+            ExcelValueFontStyle(
+                column="side", equals="BUY", bold=True, font_color="006600"
+            ),
+            ExcelValueFontStyle(
+                column="side", equals="SELL", bold=True, font_color="C00000"
+            ),
+        ],
     )
 
 

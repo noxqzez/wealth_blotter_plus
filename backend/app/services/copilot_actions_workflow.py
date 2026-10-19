@@ -10,11 +10,13 @@ from uuid import UUID
 import structlog
 
 from backend.app.core.error_codes import (
+    WBP_IMPORT_CLIENT,
     WBP_SCENARIO_CLIENT,
     WBP_SCENARIO_PARAMS,
     WBP_SCENARIO_PARSE,
     WBP_SCENARIO_PDF,
     WBP_SCENARIO_RUN,
+    WBP_SCENARIO_SERVER,
 )
 from backend.app.schemas.copilot import (
     CopilotActionRequest,
@@ -65,6 +67,7 @@ from backend.app.services.copilot_excel_writes import (
     REBALANCED_SHEET,
     build_ord_blotter_write,
     build_rebalanced_write,
+    build_stale_scenario_sheet_clears,
 )
 from backend.app.services.copilot_params import (
     format_scenario_params_markdown,
@@ -94,6 +97,31 @@ async def _clear_scenario_draft(state: CopilotSessionState) -> None:
     state.rating_for_run_id = None
 
 
+def _stash_last_scenario_prompt(state: CopilotSessionState) -> None:
+    """Keep the last prompt so Update holdings can offer one-click reuse later."""
+    raw = None
+    if isinstance(state.scenario_params, dict):
+        raw = state.scenario_params.get("user_prompt")
+    prompt = str(raw or "").strip()
+    if prompt:
+        state.last_scenario_user_prompt = prompt
+
+
+def prepare_holdings_restart(state: CopilotSessionState) -> None:
+    """Stash prompt, clear active scenario draft, reset import draft flags."""
+    _stash_last_scenario_prompt(state)
+    # Inline clear (sync) — same fields as _clear_scenario_draft.
+    state.scenario_run_id = None
+    state.scenario_params = None
+    state.params_dirty = False
+    state.rating_captured = False
+    state.rating_for_run_id = None
+    state.draft_id = None
+    state.last_import_rows = None
+    state.last_validation_error = None
+    state.import_hitl = False
+
+
 async def _handle_run_new_scenario(
     state: CopilotSessionState,
 ) -> CopilotAgentResponse:
@@ -115,6 +143,7 @@ async def _handle_run_new_scenario(
         )
 
     await _clear_scenario_draft(state)
+    state.last_scenario_user_prompt = None
     state.current_state = WorkflowState.PORTFOLIO_ENRICHED
     state.pending_action_ids = []
     sessions.save_session(state)
@@ -138,7 +167,7 @@ async def _handle_run_new_scenario(
 async def _handle_update_holdings(
     state: CopilotSessionState,
 ) -> CopilotAgentResponse:
-    """Import securities again (add/change weights) → enrich → Enter scenario."""
+    """Workflow restart: discard active scenario → re-import → validate → Enter scenario."""
     if state.current_state not in {
         WorkflowState.SCENARIO_PARSED,
         WorkflowState.OPTIMIZATION_COMPLETE,
@@ -151,30 +180,116 @@ async def _handle_update_holdings(
             http_status=400,
         )
 
-    await _clear_scenario_draft(state)
+    prepare_holdings_restart(state)
     state.current_state = WorkflowState.INIT
     state.pending_action_ids = [ACTION_PROCESS]
-    # Keep portfolio_id so same client_alias can reattach; draft cleared on process.
-    state.draft_id = None
-    state.last_import_rows = None
-    state.last_validation_error = None
-    state.import_hitl = False
+    # Keep portfolio_id so same client_alias can reattach.
+    sessions.save_session(state)
+
+    reuse_hint = ""
+    if (state.last_scenario_user_prompt or "").strip():
+        reuse_hint = (
+            "\nAfter enrich you can **Reuse last scenario** "
+            "(or type a new one)."
+        )
+
+    return _response(
+        state,
+        content=(
+            "**Workflow restart — Update holdings**\n\n"
+            "The **current scenario draft is discarded** (prior completed runs "
+            "and orders stay in history). Cleared "
+            f"`{REBALANCED_SHEET}` / `{ORD_BLOTTER_SHEET}`.\n\n"
+            "1. Select your securities table in Excel "
+            "(add names or change weights; same `client_alias` keeps this "
+            "portfolio; new alias starts fresh).\n"
+            "2. Click **Process Security List**.\n"
+            "3. Fix any validation errors, then **Enrich Portfolio**.\n"
+            "4. Enter a **new** scenario (new scenarioID)."
+            f"{reuse_hint}"
+        ),
+        actions=[_action_process()],
+        badges=["Import securities", "HOLDINGS_RESTART"],
+        excel_writes=build_stale_scenario_sheet_clears(),
+        accept_user_text=True,
+        placeholder="Ask a lookup, or process your securities list…",
+    )
+
+
+async def _handle_reuse_last_scenario(
+    state: CopilotSessionState,
+    *,
+    advisor_id: UUID,
+) -> CopilotAgentResponse:
+    """Re-parse the stashed prompt against the newly enriched portfolio."""
+    if state.current_state != WorkflowState.PORTFOLIO_ENRICHED:
+        raise CopilotFsmError(
+            "Reuse last scenario is only available after portfolio enrich.",
+            error_code=WBP_SCENARIO_CLIENT,
+            http_status=400,
+        )
+    prompt = (state.last_scenario_user_prompt or "").strip()
+    if not prompt:
+        raise CopilotFsmError(
+            "No previous scenario prompt to reuse.",
+            error_code=WBP_SCENARIO_CLIENT,
+            http_status=400,
+        )
+    if state.portfolio_id is None:
+        raise CopilotFsmError(
+            "No portfolio_id; enrich the portfolio first.",
+            error_code=WBP_SCENARIO_PARSE,
+            http_status=400,
+        )
+
+    try:
+        parsed = await parse_and_create_run(
+            portfolio_id=state.portfolio_id,
+            user_prompt=prompt,
+            advisor_id=advisor_id,
+        )
+    except ScenarioServiceError as exc:
+        return _response(
+            state,
+            content=f"Could not reuse last scenario: {exc}",
+            guardrails=[
+                GuardrailCheck(
+                    rule_id="copilot.scenario_reuse",
+                    severity="blocking_error",
+                    message=str(exc),
+                    suggested_fix=(
+                        "Edit the scenario in chat, or try **Reuse last scenario** again."
+                    ),
+                )
+            ],
+            actions=_actions_for_ids(state.pending_action_ids),
+            badges=["PORTFOLIO_ENRICHED", exc.error_code],
+            accept_user_text=True,
+            placeholder="Describe a market / macro scenario…",
+        )
+
+    params = parsed.scenario_params
+    state.current_state = WorkflowState.SCENARIO_PARSED
+    state.scenario_run_id = parsed.scenario_run_id
+    state.scenario_params = params.model_dump(mode="json")
+    state.params_dirty = False
+    state.last_scenario_user_prompt = None
+    state.pending_action_ids = _review_scenario_action_ids()
     sessions.save_session(state)
 
     return _response(
         state,
         content=(
-            "**Update holdings:** select your securities table in Excel "
-            "(add names or change weights; same `client_alias` keeps this "
-            "portfolio; new alias starts fresh), then click "
-            "**Process Security List**.\n\n"
-            "Prior scenario runs and orders stay in history. After enrich, "
-            "you’ll return to **Enter scenario** against the updated book."
+            "Reused your last scenario prompt (new scenarioID). "
+            "Review parameters, then **Confirm & Run Optimization** "
+            "or **Update holdings** to restart again.\n\n"
+            + format_scenario_params_markdown(params)
         ),
-        actions=[_action_process()],
-        badges=["Import securities"],
+        actions=_review_scenario_actions(),
+        badges=["SCENARIO_PARSED", "REUSED_LAST_SCENARIO"],
         accept_user_text=True,
-        placeholder="Ask a lookup, or process your securities list…",
+        placeholder="Edit parameters (e.g. lookback 3Y) or confirm…",
+        scenario_params_summary=scenario_params_to_summary(params),
     )
 
 async def _handle_confirm_params(
@@ -571,8 +686,9 @@ async def _handle_place_orders(
         content=(
             f"Placed **{len(orders)}** order(s) (dummy OMS → **Executed**). "
             f"`{ORD_BLOTTER_SHEET}` updated.{hitl_line}{detail}\n\n"
-            "Workflow complete for this scenario. To start again, click "
-            "**Process Security List** with a new (or updated) holdings table."
+            "Workflow complete for this scenario. To change the book, click "
+            "**Update holdings** (full restart) or **Process Security List** "
+            "with a new (or updated) holdings table."
         ),
         actions=_orders_placed_actions(),
         badges=["ORDERS_PLACED"] + (["ORDERS_HITL"] if orders_hitl else []),

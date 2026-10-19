@@ -15,6 +15,11 @@ _CLIENT_FOR_RE = re.compile(
     r"\bfor\s+client\s+[\"']?([A-Za-z0-9._\-]{1,64})[\"']?",
     re.IGNORECASE,
 )
+# "for e2e_demo client" / "trades for Acme client"
+_CLIENT_ALIAS_THEN_CLIENT_RE = re.compile(
+    r"\bfor\s+[\"']?([A-Za-z0-9._\-]{1,64})[\"']?\s+client\b",
+    re.IGNORECASE,
+)
 _CLIENT_BARE_RE = re.compile(
     r"\bclient\s+[\"']?([A-Za-z0-9._\-]{1,64})[\"']?",
     re.IGNORECASE,
@@ -125,7 +130,12 @@ def parse_ops_query(text: str) -> OpsQueryMatch | None:
 
 
 def _extract_client_alias(text: str) -> str | None:
-    for pat in (_CLIENT_ALIAS_RE, _CLIENT_FOR_RE, _CLIENT_BARE_RE):
+    for pat in (
+        _CLIENT_ALIAS_RE,
+        _CLIENT_FOR_RE,
+        _CLIENT_ALIAS_THEN_CLIENT_RE,
+        _CLIENT_BARE_RE,
+    ):
         m = pat.search(text)
         if m:
             alias = m.group(1).strip()

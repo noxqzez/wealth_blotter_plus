@@ -14,6 +14,10 @@ from backend.app.schemas.scenario import (
     ScenarioParams,
 )
 from backend.app.services import copilot_session as sessions
+from backend.app.services.copilot_common import (
+    _orders_placed_action_ids,
+    _post_opti_action_ids,
+)
 from backend.app.services.copilot_fsm import (
     ACTION_CONFIRM,
     ACTION_ENRICH,
@@ -21,6 +25,7 @@ from backend.app.services.copilot_fsm import (
     ACTION_PLACE,
     ACTION_PDF,
     ACTION_PROCESS,
+    ACTION_REUSE_LAST_SCENARIO,
     ACTION_RUN,
     ACTION_SKIP_RATING,
     ACTION_UPDATE_HOLDINGS,
@@ -30,6 +35,10 @@ from backend.app.services.copilot_fsm import (
     handle_action,
     handle_message,
     try_deterministic_param_patch,
+)
+from backend.app.services.copilot_excel_writes import (
+    ORD_BLOTTER_SHEET,
+    REBALANCED_SHEET,
 )
 from backend.app.services.copilot_guardrails import (
     classify_identifier_intent,
@@ -426,6 +435,7 @@ async def test_rating_skip_does_not_persist(
         ACTION_PLACE,
         ACTION_PDF,
         ACTION_NEW_SCENARIO,
+        ACTION_UPDATE_HOLDINGS,
     ]
 
 
@@ -495,6 +505,22 @@ async def test_run_new_scenario_from_orders_placed() -> None:
     assert resp.scenario_run_id is None
 
 
+def test_post_opti_pending_includes_update_holdings() -> None:
+    state = sessions.create_session(advisor_id=uuid4())
+    state.current_state = WorkflowState.OPTIMIZATION_COMPLETE
+    state.scenario_run_id = uuid4()
+    state.rating_captured = True
+    state.rating_for_run_id = state.scenario_run_id
+    ids = _post_opti_action_ids(state)
+    assert ACTION_UPDATE_HOLDINGS in ids
+    assert ACTION_PLACE in ids
+
+
+def test_orders_placed_pending_includes_update_holdings() -> None:
+    assert ACTION_UPDATE_HOLDINGS in _orders_placed_action_ids()
+    assert ACTION_PROCESS in _orders_placed_action_ids()
+
+
 @pytest.mark.asyncio
 async def test_update_holdings_from_optimization_complete() -> None:
     advisor = uuid4()
@@ -503,12 +529,10 @@ async def test_update_holdings_from_optimization_complete() -> None:
     state.current_state = WorkflowState.OPTIMIZATION_COMPLETE
     state.portfolio_id = portfolio_id
     state.scenario_run_id = uuid4()
-    state.pending_action_ids = [
-        ACTION_PLACE,
-        ACTION_PDF,
-        ACTION_NEW_SCENARIO,
-        ACTION_UPDATE_HOLDINGS,
-    ]
+    state.scenario_params = {"user_prompt": "Chinese stocks rally"}
+    state.rating_captured = True
+    state.rating_for_run_id = state.scenario_run_id
+    state.pending_action_ids = _post_opti_action_ids(state)
     sessions.save_session(state)
 
     resp = await handle_action(
@@ -518,11 +542,17 @@ async def test_update_holdings_from_optimization_complete() -> None:
     )
     assert resp.current_state == WorkflowState.INIT
     assert [a.id for a in resp.actions] == [ACTION_PROCESS]
+    assert "discarded" in resp.content.lower()
+    sheet_names = {w.sheet_name for w in resp.excel_writes}
+    assert REBALANCED_SHEET in sheet_names
+    assert ORD_BLOTTER_SHEET in sheet_names
     refreshed = sessions.get_session(
         session_id=state.session_id, advisor_id=advisor
     )
     assert refreshed.portfolio_id == portfolio_id
     assert refreshed.scenario_run_id is None
+    assert refreshed.scenario_params is None
+    assert refreshed.last_scenario_user_prompt == "Chinese stocks rally"
 
 
 @pytest.mark.asyncio
@@ -531,11 +561,7 @@ async def test_update_holdings_via_enrich_portfolio_text() -> None:
     state = sessions.create_session(advisor_id=advisor)
     state.current_state = WorkflowState.ORDERS_PLACED
     state.portfolio_id = uuid4()
-    state.pending_action_ids = [
-        ACTION_PDF,
-        ACTION_NEW_SCENARIO,
-        ACTION_UPDATE_HOLDINGS,
-    ]
+    state.pending_action_ids = _orders_placed_action_ids()
     sessions.save_session(state)
 
     resp = await handle_message(
@@ -568,7 +594,8 @@ async def test_update_holdings_returns_to_import() -> None:
     assert resp.current_state == WorkflowState.INIT
     assert resp.status_label == "Import securities"
     assert [a.id for a in resp.actions] == [ACTION_PROCESS]
-    assert "update holdings" in resp.content.lower()
+    assert "discarded" in resp.content.lower()
+    assert "workflow restart" in resp.content.lower()
 
     refreshed = sessions.get_session(
         session_id=state.session_id, advisor_id=advisor
@@ -576,7 +603,138 @@ async def test_update_holdings_returns_to_import() -> None:
     assert refreshed.portfolio_id == portfolio_id
     assert refreshed.scenario_run_id is None
     assert refreshed.scenario_params is None
+    assert refreshed.last_scenario_user_prompt == "rally"
     assert refreshed.pending_action_ids == [ACTION_PROCESS]
+
+
+@pytest.mark.asyncio
+async def test_reuse_last_scenario_after_enrich(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    advisor = uuid4()
+    portfolio_id = uuid4()
+    new_run_id = uuid4()
+    state = sessions.create_session(advisor_id=advisor)
+    state.current_state = WorkflowState.PORTFOLIO_ENRICHED
+    state.portfolio_id = portfolio_id
+    state.last_scenario_user_prompt = "Chinese stocks rally"
+    state.pending_action_ids = [ACTION_REUSE_LAST_SCENARIO]
+    sessions.save_session(state)
+
+    class _Parsed:
+        scenario_run_id = new_run_id
+        scenario_params = ScenarioParams(
+            user_prompt="Chinese stocks rally",
+            scenario=ScenarioBlock(
+                scenario_name="China rally",
+                scenario_type="macro",
+            ),
+        )
+
+    async def _fake_parse(**kwargs: object) -> _Parsed:
+        assert kwargs["user_prompt"] == "Chinese stocks rally"
+        assert kwargs["portfolio_id"] == portfolio_id
+        return _Parsed()
+
+    monkeypatch.setattr(
+        "backend.app.services.copilot_actions_workflow.parse_and_create_run",
+        _fake_parse,
+    )
+
+    resp = await handle_action(
+        session_id=state.session_id,
+        advisor_id=advisor,
+        request=CopilotActionRequest(action_id=ACTION_REUSE_LAST_SCENARIO),
+    )
+    assert resp.current_state == WorkflowState.SCENARIO_PARSED
+    assert resp.scenario_run_id == new_run_id
+    assert "REUSED_LAST_SCENARIO" in resp.execution_status_badges
+    refreshed = sessions.get_session(
+        session_id=state.session_id, advisor_id=advisor
+    )
+    assert refreshed.last_scenario_user_prompt is None
+    assert refreshed.scenario_params is not None
+    assert refreshed.scenario_params["user_prompt"] == "Chinese stocks rally"
+
+
+@pytest.mark.asyncio
+async def test_orders_placed_process_clears_scenario_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    advisor = uuid4()
+    state = sessions.create_session(advisor_id=advisor)
+    state.current_state = WorkflowState.ORDERS_PLACED
+    state.portfolio_id = uuid4()
+    state.scenario_run_id = uuid4()
+    state.scenario_params = {"user_prompt": "old prompt"}
+    state.pending_action_ids = _orders_placed_action_ids()
+    sessions.save_session(state)
+
+    async def _fake_validate(*_a: object, **_k: object):
+        refreshed = sessions.get_session(
+            session_id=state.session_id, advisor_id=advisor
+        )
+        assert refreshed.scenario_run_id is None
+        assert refreshed.scenario_params is None
+        assert refreshed.last_scenario_user_prompt == "old prompt"
+        from backend.app.schemas.copilot import CopilotAgentResponse
+
+        return CopilotAgentResponse(
+            message_id="m1",
+            session_id=state.session_id,
+            current_state=WorkflowState.BLOTTER_VALIDATED,
+            status_label="Blotter validated",
+            content="ok",
+        )
+
+    monkeypatch.setattr(
+        "backend.app.services.copilot_actions._validate_rows",
+        _fake_validate,
+    )
+
+    await handle_action(
+        session_id=state.session_id,
+        advisor_id=advisor,
+        request=CopilotActionRequest(
+            action_id=ACTION_PROCESS,
+            rows=[{"ticker": "AAPL", "quantity": 1, "asset_class": "EQUITY"}],
+        ),
+    )
+
+@pytest.mark.asyncio
+async def test_ops_latest_trades_does_not_nameerror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: ops reply used workflow_status_label without importing it."""
+    from backend.app.services.copilot_ops_models import OpsQueryResult
+
+    advisor = uuid4()
+    state = sessions.create_session(advisor_id=advisor)
+    state.current_state = WorkflowState.ORDERS_PLACED
+    state.pending_action_ids = [ACTION_UPDATE_HOLDINGS, ACTION_PROCESS]
+    sessions.save_session(state)
+
+    async def _fake_ops(*_a: object, **_k: object) -> OpsQueryResult:
+        return OpsQueryResult(
+            ok=True,
+            content="Latest trades for `e2e_demo`:\n- AAPL BUY 10",
+            ops_kind="latest_trades",
+            ops_client_alias="e2e_demo",
+            ops_load_target="none",
+        )
+
+    monkeypatch.setattr(
+        "backend.app.services.copilot_fsm.execute_ops_query",
+        _fake_ops,
+    )
+    resp = await handle_message(
+        session_id=state.session_id,
+        advisor_id=advisor,
+        text="what are the latest trades for e2e_demo client?",
+    )
+    assert "e2e_demo" in resp.content
+    assert "OPS_QUERY" in resp.execution_status_badges
+    assert resp.status_label  # must not raise NameError building response
 
 
 @pytest.mark.asyncio

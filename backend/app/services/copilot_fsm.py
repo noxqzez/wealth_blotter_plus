@@ -17,9 +17,11 @@ from backend.app.schemas.copilot import (
     CopilotActionRequest,
     CopilotAgentResponse,
     CopilotSessionState,
+    DownloadArtifact,
     GuardrailCheck,
     IntentClass,
     WorkflowState,
+    workflow_status_label,
 )
 from backend.app.schemas.rules import TechnicalLimits
 from backend.app.schemas.scenario import ScenarioParams
@@ -38,6 +40,7 @@ from backend.app.services.copilot_common import (
     ACTION_PROCESS,
     ACTION_RATE_PREFIX,
     ACTION_REPROCESS,
+    ACTION_REUSE_LAST_SCENARIO,
     ACTION_RUN,
     ACTION_SKIP_RATING,
     ACTION_UPDATE_HOLDINGS,
@@ -125,6 +128,7 @@ def _fsm_continue_hint(state: CopilotSessionState) -> str:
         ACTION_SKIP_RATING: "Skip rating (or tap stars)",
         ACTION_NEW_SCENARIO: "Run new scenario",
         ACTION_UPDATE_HOLDINGS: "Update holdings",
+        ACTION_REUSE_LAST_SCENARIO: "Reuse last scenario",
     }
     # Prefer primary workflow actions over rating skips / secondary restarts
     preferred = [
@@ -467,6 +471,8 @@ async def _message_scenario_prompt(
     state.scenario_run_id = parsed.scenario_run_id
     state.scenario_params = params.model_dump(mode="json")
     state.params_dirty = False
+    # New free-text scenario replaces any stashed reuse prompt.
+    state.last_scenario_user_prompt = None
     state.pending_action_ids = _review_scenario_action_ids()
     sessions.save_session(state)
 
@@ -582,6 +588,7 @@ __all__ = [
     "ACTION_RUN",
     "ACTION_SKIP_RATING",
     "ACTION_UPDATE_HOLDINGS",
+    "ACTION_REUSE_LAST_SCENARIO",
     "CopilotFsmError",
     "ORD_BLOTTER_SHEET",
     "SCRATCHPAD_SHEET",

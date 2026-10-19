@@ -245,6 +245,8 @@ class CopilotSessionState(BaseModel):
     scenario_run_id: UUID | None = None
     scenario_params: dict[str, Any] | None = None
     params_dirty: bool = False
+    # Stashed when Update holdings restarts the workflow; one-click reuse after enrich.
+    last_scenario_user_prompt: str | None = None
     last_import_rows: list[dict[str, Any]] | None = None
     last_source_sheet: str | None = None
     last_validation_error: str | None = None

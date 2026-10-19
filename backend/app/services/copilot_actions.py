@@ -14,14 +14,17 @@ from backend.app.services.copilot_actions_import import (
     _rows_from_payload,
     _validate_rows,
 )
+from backend.app.schemas.copilot import WorkflowState
 from backend.app.services.copilot_actions_workflow import (
     _handle_confirm_params,
     _handle_pdf,
     _handle_place_orders,
     _handle_rating_action,
+    _handle_reuse_last_scenario,
     _handle_run,
     _handle_run_new_scenario,
     _handle_update_holdings,
+    prepare_holdings_restart,
 )
 from backend.app.services.copilot_common import (
     ACTION_CONFIRM,
@@ -33,6 +36,7 @@ from backend.app.services.copilot_common import (
     ACTION_PROCESS,
     ACTION_RATE_PREFIX,
     ACTION_REPROCESS,
+    ACTION_REUSE_LAST_SCENARIO,
     ACTION_RUN,
     ACTION_SKIP_RATING,
     ACTION_UPDATE_HOLDINGS,
@@ -74,6 +78,9 @@ async def handle_action(
 
     if action_id in {ACTION_PROCESS, ACTION_REPROCESS}:
         if action_id == ACTION_PROCESS:
+            # ORDERS_PLACED Process is a holdings restart alias — clear draft first.
+            if state.current_state == WorkflowState.ORDERS_PLACED:
+                prepare_holdings_restart(state)
             state.import_hitl = False
         else:
             state.import_hitl = True
@@ -113,6 +120,9 @@ async def handle_action(
 
     if action_id == ACTION_UPDATE_HOLDINGS:
         return await _handle_update_holdings(state)
+
+    if action_id == ACTION_REUSE_LAST_SCENARIO:
+        return await _handle_reuse_last_scenario(state, advisor_id=advisor_id)
 
     if action_id == ACTION_SKIP_RATING or action_id.startswith(ACTION_RATE_PREFIX):
         return await _handle_rating_action(

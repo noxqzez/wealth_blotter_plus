@@ -33,6 +33,8 @@ from backend.app.services.copilot_common import (
     ACTION_ENRICH,
     ACTION_PROCESS,
     ACTION_REPROCESS,
+    _enter_scenario_action_ids,
+    _enter_scenario_actions,
     CopilotFsmError,
     _TICKER_IN_ERROR_RE,
     _action_drop,
@@ -112,7 +114,7 @@ async def _validate_rows(
             content=(
                 "### Blotter validation errors\n\n"
                 f"{err}\n\n"
-                "Fix the list in Excel and **Reprocess**, or try "
+                "Fix the list in Excel, select it and **Reprocess**, or try "
                 "**Drop Invalid and Proceed** if the error names specific tickers."
             ),
             actions=[_action_reprocess(), _action_drop()],
@@ -289,7 +291,7 @@ async def _handle_enrich(
     state.current_state = WorkflowState.PORTFOLIO_ENRICHED
     state.portfolio_id = result.portfolio_id
     state.draft_id = result.draft_id
-    state.pending_action_ids = []
+    state.pending_action_ids = _enter_scenario_action_ids(state)
     sessions.save_session(state)
 
     warnings = "\n".join(f"- {w}" for w in result.warnings) if result.warnings else ""
@@ -300,14 +302,21 @@ async def _handle_enrich(
     ]
     if warnings:
         parts.append(warnings)
-    parts.append(
-        "Describe a market scenario in the chat "
-        "(e.g. “Fed cuts rates 50bp; risk-on equities, 3M horizon”)."
-    )
+    if state.pending_action_ids:
+        parts.append(
+            "Click **Reuse last scenario** to re-run your previous prompt "
+            "on this book (new scenarioID), or describe a new market scenario "
+            "in chat (e.g. “Fed cuts rates 50bp; risk-on equities, 3M horizon”)."
+        )
+    else:
+        parts.append(
+            "Describe a market scenario in the chat "
+            "(e.g. “Fed cuts rates 50bp; risk-on equities, 3M horizon”)."
+        )
     return _response(
         state,
         content="\n\n".join(parts),
-        actions=[],
+        actions=_enter_scenario_actions(state),
         badges=["Enter scenario"],
         excel_writes=[write],
         accept_user_text=True,

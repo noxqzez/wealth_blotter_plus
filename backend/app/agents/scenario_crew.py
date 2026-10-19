@@ -191,11 +191,21 @@ def _prompt_tone_override(user_prompt: str) -> str | None:
     return None
 
 
+def _months_until_year_end() -> int:
+    """Whole months remaining until Dec (inclusive of current month remainder)."""
+    from datetime import date
+
+    today = date.today()
+    # Oct → 2 (Nov+Dec); Dec → 1; Jan → 11
+    return max(1, 12 - today.month)
+
+
 def _prompt_horizon_override(user_prompt: str) -> str | None:
     """Map temporal language in the prompt to investment_horizon tokens.
 
     Beats a missing/default ``1M`` when the advisor clearly said next year,
-    a future calendar year, etc. Explicit ``horizon Nd`` / ``horizon NY`` wins.
+    a future calendar year, N months, year-end, etc.
+    Explicit ``horizon Nd`` / ``horizon NY`` wins.
     """
     lower = (user_prompt or "").lower()
     explicit = re.search(
@@ -210,13 +220,24 @@ def _prompt_horizon_override(user_prompt: str) -> str | None:
         lower,
     ):
         return "1Y"
-    # "next 12 months" / "in the next 18 months" → year-scale horizon
+    # "18 months" / "next 14 months" / "in the next 12 months" → NM (12 → 1Y)
     months = re.search(
-        r"\b(?:in|over|within|for)?\s*(?:the\s+)?next\s+(\d+)\s+months?\b",
+        r"\b(?:(?:in|over|within|for)\s+(?:the\s+)?)?(?:next\s+)?(\d+)\s+months?\b",
         lower,
     )
-    if months and int(months.group(1)) >= 12:
-        return "1Y"
+    if months:
+        n = int(months.group(1))
+        if n <= 0:
+            return None
+        if n == 12:
+            return "1Y"
+        return f"{n}M"
+    # "by year end" / "year-end" / "through year end" → remaining calendar months
+    if re.search(
+        r"\b(?:by|through|until|to)\s+year[\s-]?end\b|\byear[\s-]?end\b",
+        lower,
+    ):
+        return f"{_months_until_year_end()}M"
     if re.search(r"\b(?:by|in|through|until)\s+20\d{2}\b", lower) or re.search(
         r"\b20(2[6-9]|[3-9]\d)\b", lower
     ):

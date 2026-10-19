@@ -59,6 +59,13 @@ def test_parse_latest_trades() -> None:
     assert m.client_alias == "Acme"
 
 
+def test_parse_latest_trades_alias_before_client_word() -> None:
+    m = parse_ops_query("what are the latest trades for e2e_demo client?")
+    assert m is not None
+    assert m.kind == "latest_trades"
+    assert m.client_alias == "e2e_demo"
+
+
 def test_parse_load_followup() -> None:
     m = parse_ops_query("load it")
     assert m is not None

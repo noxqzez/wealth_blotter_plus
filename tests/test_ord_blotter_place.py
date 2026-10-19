@@ -68,8 +68,13 @@ def test_place_action_id() -> None:
     assert ACTION_PLACE == "place_all_orders"
 
 
-def test_orders_placed_only_process_security_list() -> None:
-    assert _orders_placed_action_ids() == [ACTION_PROCESS]
+def test_orders_placed_restart_actions() -> None:
+    from backend.app.services.copilot_fsm import ACTION_UPDATE_HOLDINGS
+
+    assert _orders_placed_action_ids() == [
+        ACTION_UPDATE_HOLDINGS,
+        ACTION_PROCESS,
+    ]
 
 
 def test_overlay_excel_order_qty_preserves_advisor_edit() -> None:

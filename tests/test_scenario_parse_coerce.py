@@ -174,6 +174,33 @@ def test_heuristic_next_12_months_sets_horizon_1y() -> None:
     assert params.scenario.investment_horizon == "1Y"
 
 
+def test_heuristic_n_months_keeps_month_token() -> None:
+    assert (
+        heuristic_scenario_params("oil shock over 18 months").scenario.investment_horizon
+        == "18M"
+    )
+    assert (
+        heuristic_scenario_params("rally in 14 months").scenario.investment_horizon
+        == "14M"
+    )
+
+
+def test_heuristic_by_year_end_uses_remaining_months() -> None:
+    from datetime import date
+
+    expected = f"{max(1, 12 - date.today().month)}M"
+    assert (
+        heuristic_scenario_params(
+            "equities rally by year end"
+        ).scenario.investment_horizon
+        == expected
+    )
+    assert (
+        heuristic_scenario_params("risk-on into year-end").scenario.investment_horizon
+        == expected
+    )
+
+
 def test_coerce_next_year_overrides_default_1m() -> None:
     raw = {
         "message_type": "scenario_params",

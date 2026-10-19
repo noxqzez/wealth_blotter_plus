@@ -36,6 +36,7 @@ ACTION_PLACE = "place_all_orders"
 ACTION_SKIP_RATING = "skip_rating"
 ACTION_NEW_SCENARIO = "run_new_scenario"
 ACTION_UPDATE_HOLDINGS = "update_holdings"
+ACTION_REUSE_LAST_SCENARIO = "reuse_last_scenario"
 ACTION_RATE_PREFIX = "rate_stars_"
 _RATE_ACTION_IDS: tuple[str, ...] = tuple(
     f"{ACTION_RATE_PREFIX}{n}" for n in range(1, 6)
@@ -177,6 +178,15 @@ def _action_update_holdings() -> ActionTrigger:
     )
 
 
+def _action_reuse_last_scenario() -> ActionTrigger:
+    return ActionTrigger(
+        id=ACTION_REUSE_LAST_SCENARIO,
+        label="Reuse last scenario",
+        variant=ActionVariant.SECONDARY,
+        requires_excel_selection=False,
+    )
+
+
 def _action_rate(stars: int) -> ActionTrigger:
     """Server-side action id only — UI uses the compact star widget."""
     return ActionTrigger(
@@ -224,13 +234,13 @@ def _post_opti_action_ids(state: CopilotSessionState) -> list[str]:
     if _rating_pending(state):
         ids.extend(_RATE_ACTION_IDS)
         ids.append(ACTION_SKIP_RATING)
-    # Place orders is the main next step; PDF / new scenario are secondary.
-    # Update holdings is omitted here — restart via Process Security List instead.
+    # Place orders is the main next step; PDF / new scenario / holdings restart.
     ids.extend(
         [
             ACTION_PLACE,
             ACTION_PDF,
             ACTION_NEW_SCENARIO,
+            ACTION_UPDATE_HOLDINGS,
         ]
     )
     return ids
@@ -246,18 +256,32 @@ def _post_opti_actions(state: CopilotSessionState) -> list[ActionTrigger]:
             _action_place(),
             _action_pdf(),
             _action_new_scenario(),
+            _action_update_holdings(),
         ]
     )
     return actions
 
 
 def _orders_placed_action_ids() -> list[str]:
-    # Terminal workflow: only restart via a fresh security-list import.
-    return [ACTION_PROCESS]
+    # Terminal workflow: restart via Update holdings or Process Security List.
+    return [ACTION_UPDATE_HOLDINGS, ACTION_PROCESS]
 
 
 def _orders_placed_actions() -> list[ActionTrigger]:
-    return [_action_process()]
+    return [_action_update_holdings(), _action_process()]
+
+
+def _enter_scenario_actions(state: CopilotSessionState) -> list[ActionTrigger]:
+    """Actions after enrich when a prior scenario prompt was stashed."""
+    if (state.last_scenario_user_prompt or "").strip():
+        return [_action_reuse_last_scenario()]
+    return []
+
+
+def _enter_scenario_action_ids(state: CopilotSessionState) -> list[str]:
+    if (state.last_scenario_user_prompt or "").strip():
+        return [ACTION_REUSE_LAST_SCENARIO]
+    return []
 
 
 def _overlay_excel_order_qty(
@@ -323,6 +347,7 @@ def _actions_for_ids(ids: list[str]) -> list[ActionTrigger]:
         ACTION_SKIP_RATING: _action_skip_rating(),
         ACTION_NEW_SCENARIO: _action_new_scenario(),
         ACTION_UPDATE_HOLDINGS: _action_update_holdings(),
+        ACTION_REUSE_LAST_SCENARIO: _action_reuse_last_scenario(),
     }
     for n in range(1, 6):
         catalog[f"{ACTION_RATE_PREFIX}{n}"] = _action_rate(n)
@@ -343,7 +368,9 @@ def _placeholder_for(state: CopilotSessionState) -> str | None:
             "Ask a lookup, place orders, PDF, new scenario, or update holdings…"
         )
     if state.current_state == WorkflowState.ORDERS_PLACED:
-        return "Ask a lookup, or process a new securities list to restart…"
+        return (
+            "Ask a lookup, update holdings, or process a new securities list…"
+        )
     return None
 
 

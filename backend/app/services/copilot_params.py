@@ -199,14 +199,21 @@ def try_deterministic_param_patch(
         lower,
     ):
         scenario_patch["investment_horizon"] = "1Y"
-    elif (
-        (m := re.search(
-            r"\b(?:in|over|within|for)?\s*(?:the\s+)?next\s+(\d+)\s+months?\b",
-            lower,
-        ))
-        and int(m.group(1)) >= 12
+    elif m := re.search(
+        r"\b(?:(?:in|over|within|for)\s+(?:the\s+)?)?(?:next\s+)?(\d+)\s+months?\b",
+        lower,
     ):
-        scenario_patch["investment_horizon"] = "1Y"
+        n = int(m.group(1))
+        if n > 0:
+            scenario_patch["investment_horizon"] = "1Y" if n == 12 else f"{n}M"
+    elif re.search(
+        r"\b(?:by|through|until|to)\s+year[\s-]?end\b|\byear[\s-]?end\b",
+        lower,
+    ):
+        from datetime import date
+
+        months_left = max(1, 12 - date.today().month)
+        scenario_patch["investment_horizon"] = f"{months_left}M"
     elif re.search(r"\b(?:by|in|through|until)\s+20\d{2}\b", lower) or re.search(
         r"\b20(2[6-9]|[3-9]\d)\b", lower
     ):

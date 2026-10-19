@@ -9,6 +9,8 @@ parse_scenario:
     "next year" / "over the next year" / "by next year" → 1Y;
     an explicit future calendar year (e.g. 2027, 2028) or "by 2028" → 1Y
     (or multi-year like 2Y/3Y when the gap is clearly longer);
+    "N months" / "next N months" / "in N months" → NM (exactly 12 months → 1Y);
+    "by year end" / "year-end" → remaining months until Dec (e.g. 2M in October);
     "next month" / "by month-end" → 1M; "next week" → 1W.
     Only default investment_horizon to 1M when the prompt has no time cue.
     Do not invent numeric portfolio weights or optimizer math.

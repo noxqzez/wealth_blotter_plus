@@ -278,4 +278,21 @@ def build_ord_blotter_write(
     )
 
 
+def build_clear_sheet_write(sheet_name: str) -> ExcelWriteSpec:
+    """Clear a sheet's used range (empty values); client leaves sheet visible."""
+    return ExcelWriteSpec(
+        sheet_name=sheet_name,
+        values=[],
+        activate=False,
+    )
+
+
+def build_stale_scenario_sheet_clears() -> list[ExcelWriteSpec]:
+    """Clear prior opti output sheets when holdings restart abandons a scenario."""
+    return [
+        build_clear_sheet_write(REBALANCED_SHEET),
+        build_clear_sheet_write(ORD_BLOTTER_SHEET),
+    ]
+
+
 # ---------------------------------------------------------------------------

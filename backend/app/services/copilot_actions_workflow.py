@@ -20,6 +20,7 @@ from backend.app.schemas.copilot import (
     CopilotActionRequest,
     CopilotAgentResponse,
     CopilotSessionState,
+    DownloadArtifact,
     GuardrailCheck,
     WorkflowState,
 )

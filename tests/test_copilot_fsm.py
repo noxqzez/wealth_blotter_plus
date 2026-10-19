@@ -577,3 +577,37 @@ async def test_update_holdings_returns_to_import() -> None:
     assert refreshed.scenario_run_id is None
     assert refreshed.scenario_params is None
     assert refreshed.pending_action_ids == [ACTION_PROCESS]
+
+
+@pytest.mark.asyncio
+async def test_download_pdf_returns_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: PDF action must build DownloadArtifact (not NameError)."""
+    advisor = uuid4()
+    run_id = uuid4()
+    state = sessions.create_session(advisor_id=advisor)
+    state.current_state = WorkflowState.OPTIMIZATION_COMPLETE
+    state.scenario_run_id = run_id
+    state.rating_captured = True
+    state.pending_action_ids = [ACTION_PLACE, ACTION_PDF]
+    sessions.save_session(state)
+
+    async def _fake_pdf(*, scenario_run_id, advisor_id):  # noqa: ANN001
+        assert scenario_run_id == run_id
+        assert advisor_id == advisor
+        return b"%PDF-1.4 test", "scenario_test.pdf", "demo_client"
+
+    monkeypatch.setattr(
+        "backend.app.services.copilot_actions_workflow.build_pdf_bytes",
+        _fake_pdf,
+    )
+    resp = await handle_action(
+        session_id=state.session_id,
+        advisor_id=advisor,
+        request=CopilotActionRequest(action_id=ACTION_PDF),
+    )
+    assert resp.download is not None
+    assert resp.download.kind == "pdf"
+    assert resp.download.filename == "scenario_test.pdf"
+    assert "PDF_READY" in resp.execution_status_badges

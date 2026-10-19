@@ -59,12 +59,14 @@ services:
         sync: false
       - key: PILOT_WELCOME_FROM_EMAIL
         sync: false
+      # Leave empty: attach gitignored manifest.pilot.LIVE.xml in welcome email.
+      # Do not point at Static Site …/manifest.pilot.xml (placeholders when public-ready).
       - key: PILOT_MANIFEST_URL
-        value: https://wealth-blotter-plus-excel.onrender.com/manifest.pilot.xml
+        value: ""
       - key: PILOT_EXCEL_BASE_URL
         value: https://wealth-blotter-plus-excel.onrender.com
 
-  # Excel task pane (Office Add-in SourceLocation). Pilots sideload manifest.pilot.xml once.
+  # Excel task pane. Pilots sideload LIVE manifest from email, not placeholder XML.
   - type: web
     name: wealth-blotter-plus-excel
     runtime: static

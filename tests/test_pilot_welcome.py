@@ -36,6 +36,19 @@ def test_default_manifest_url_prefers_explicit() -> None:
     assert default_manifest_url(settings).endswith("manifest.pilot.xml")
 
 
+def test_default_manifest_url_empty_when_unset() -> None:
+    settings = MagicMock()
+    settings.pilot_manifest_url = ""
+    settings.pilot_excel_base_url = "https://excel.example"
+    assert default_manifest_url(settings) == ""
+
+
+def test_welcome_text_attachment_mode_when_no_url() -> None:
+    text = build_welcome_text(manifest_url="")
+    assert "attached" in text.lower()
+    assert "placeholder" in text.lower()
+
+
 def test_send_welcome_requires_resend_config() -> None:
     settings = MagicMock()
     settings.resend_api_key = ""

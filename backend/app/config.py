@@ -92,14 +92,15 @@ class Settings(BaseSettings):
         default="",
         alias="PILOT_WELCOME_FROM_EMAIL",
     )
-    # Full URL to manifest.pilot.xml (preferred).
+    # Optional download URL for the LIVE pilot manifest. Prefer empty + email
+    # attachment of manifest.pilot.LIVE.xml (Static Site XML may be placeholders).
     pilot_manifest_url: str = Field(
-        default="https://wealth-blotter-plus-excel.onrender.com/manifest.pilot.xml",
+        default="",
         alias="PILOT_MANIFEST_URL",
     )
-    # Fallback base for Excel static site if PILOT_MANIFEST_URL empty.
+    # Excel Static Site origin for email copy (not a secret).
     pilot_excel_base_url: str = Field(
-        default="https://wealth-blotter-plus-excel.onrender.com",
+        default="",
         alias="PILOT_EXCEL_BASE_URL",
     )
 

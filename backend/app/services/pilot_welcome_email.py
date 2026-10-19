@@ -37,14 +37,52 @@ class WelcomeEmailResult:
 
 
 def default_manifest_url(settings: Settings | None = None) -> str:
+    """Return optional LIVE manifest URL, or empty to use email attachment."""
     cfg = settings or get_settings()
     explicit = (cfg.pilot_manifest_url or "").strip()
     if explicit:
         return explicit.rstrip("/")
-    base = (cfg.pilot_excel_base_url or "").strip().rstrip("/")
-    if base:
-        return f"{base}/manifest.pilot.xml"
-    return "https://wealth-blotter-plus-excel.onrender.com/manifest.pilot.xml"
+    # Do not invent Static Site …/manifest.pilot.xml — that file may be placeholders.
+    return ""
+
+
+def _manifest_step_text(manifest_url: str) -> str:
+    url = (manifest_url or "").strip()
+    if url:
+        return (
+            "1) Download the Excel add-in manifest\n"
+            f"   {url}\n"
+            "   Save it as manifest.pilot.xml (do not rename to .txt).\n"
+            "   Tip: if the browser shows XML instead of downloading, use File → Save As,\n"
+            f'   or on Mac: curl -L -o ~/Downloads/manifest.pilot.xml "{url}"\n'
+        )
+    return (
+        "1) Use the Excel add-in manifest attached to this email "
+        "(or separately from your host)\n"
+        "   Save it as manifest.pilot.xml (do not rename to .txt).\n"
+        "   Do not use placeholder XML from GitHub or from …/manifest.pilot.xml "
+        "on the public Static Site.\n"
+    )
+
+
+def _manifest_step_html(manifest_url: str) -> str:
+    url = (manifest_url or "").strip()
+    if url:
+        safe_url = (
+            url.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
+        )
+        return (
+            "<strong>Download the add-in manifest</strong><br/>"
+            f'<a href="{safe_url}">{safe_url}</a><br/>'
+            "Save as <code>manifest.pilot.xml</code> (do not rename to .txt). "
+            "If the browser only shows XML, use <em>File → Save As</em>."
+        )
+    return (
+        "<strong>Use the add-in manifest from your host</strong> "
+        "(email attachment of the LIVE file)<br/>"
+        "Save as <code>manifest.pilot.xml</code>. "
+        "Do not use placeholder XML from GitHub or the public Static Site."
+    )
 
 
 def build_welcome_text(*, manifest_url: str) -> str:
@@ -52,12 +90,7 @@ def build_welcome_text(*, manifest_url: str) -> str:
 
 Next steps (about 10 minutes, desktop Excel only — not Excel Online):
 
-1) Download the Excel add-in manifest
-   {manifest_url}
-   Save it as manifest.pilot.xml (do not rename to .txt).
-   Tip: if the browser shows XML instead of downloading, use File → Save As,
-   or on Mac: curl -L -o ~/Downloads/manifest.pilot.xml "{manifest_url}"
-
+{_manifest_step_text(manifest_url)}
 2) Load it once in desktop Excel
    Insert → Add-ins → My Add-ins → Upload My Add-in
    (Mac: if Upload is missing, copy the file into
@@ -95,11 +128,6 @@ Questions? Reply to the host who approved you.
 
 
 def build_welcome_html(*, manifest_url: str) -> str:
-    safe_url = (
-        manifest_url.replace("&", "&amp;")
-        .replace('"', "&quot;")
-        .replace("<", "&lt;")
-    )
     return f"""<!DOCTYPE html>
 <html>
 <body style="font-family:Segoe UI,Helvetica,Arial,sans-serif;line-height:1.45;color:#111;">
@@ -107,10 +135,7 @@ def build_welcome_html(*, manifest_url: str) -> str:
   <p>Use desktop Excel (Mac or Windows). Excel Online is not supported for this pilot.</p>
   <ol>
     <li style="margin-bottom:10px;">
-      <strong>Download the add-in manifest</strong><br/>
-      <a href="{safe_url}">{safe_url}</a><br/>
-      Save as <code>manifest.pilot.xml</code> (do not rename to .txt).
-      If the browser only shows XML, use <em>File → Save As</em>.
+      {_manifest_step_html(manifest_url)}
     </li>
     <li style="margin-bottom:10px;">
       <strong>Load it once in Excel</strong><br/>

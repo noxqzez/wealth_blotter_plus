@@ -15,7 +15,8 @@ COPY pyproject.toml README.md ./
 COPY backend ./backend
 COPY factories ./factories
 
-RUN pip install --upgrade pip && pip install .
+# Include [rag] so PDF upload/embed works on Render (PyMuPDF + sentence-transformers).
+RUN pip install --upgrade pip && pip install ".[rag]"
 
 # Render sets $PORT
 EXPOSE 8000

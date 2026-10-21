@@ -408,6 +408,14 @@
         color: var(--danger);
         border-color: #e0b4b7;
       }
+      .ai-disclaimer {
+        margin: 6px 0 0;
+        padding: 0 2px;
+        font-size: 10px;
+        line-height: 1.3;
+        color: var(--muted);
+        text-align: center;
+      }
     </style>
   </head>
   <body>
@@ -511,6 +519,7 @@
           <button id="sendBtn" type="button" disabled>Send</button>
         </div>
         <p id="status" aria-live="polite"></p>
+        <p class="ai-disclaimer">AI is often wrong. Not investment advice</p>
       </div>
     </div>
     <script type="module" src="/src/taskpane.ts"></script>

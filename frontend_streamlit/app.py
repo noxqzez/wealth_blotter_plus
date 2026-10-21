@@ -74,10 +74,17 @@ page = st.sidebar.radio(
     index=0,
 )
 
+
+def _sidebar_disclaimer() -> None:
+    st.sidebar.markdown("---")
+    st.sidebar.caption("AI is often wrong. Not investment advice")
+
+
 if page == "Usage & Control Monitor":
     from frontend_streamlit.exec_monitor.page import render_exec_monitor
 
     render_exec_monitor()
+    _sidebar_disclaimer()
     st.stop()
 
 # ---------------------------------------------------------------------------
@@ -187,3 +194,5 @@ if prompt:
             st.rerun()
         except Exception as exc:  # noqa: BLE001
             st.error(_safe_text(str(exc)))
+
+_sidebar_disclaimer()
